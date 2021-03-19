@@ -163,7 +163,7 @@ parsecolor() {
 
 ######### Messages & lists ############
 declare TITLE_COL="$Yellow" UI_LINE
-declare -i MST_COMMON=0 MST_ERROR=1 ECN LSS_ON=0 LSS_OFF=1
+declare -i MST_COMMON=0 MST_ERROR=1 ECN LCN LSS_ON=0 LSS_OFF=1
 declare -a MSG MST LST LSS SVC SVS SVO
 
 # Generate & print dash
@@ -185,11 +185,23 @@ pline() {
 	((COLOR)) && printf "${2}%b\n" "$text" || printf '%s\n' "$text"
 }
 
+# Print list item
+# $1 - text
+# $2 - status
+# colors
+# flags
+pitem() {
+	declare text="$1"
+	declare -i status=$2
+	declare -n colors=$3 flags=$4
+	((COLOR)) && pline "$text" "${colors[$status]}" || pline "${flags[$status]} $text"
+}
+
 # Clear message stack
 clrmsg() { MST=() ; MSG=() ; ECN=0 ; }
 
 # Clear list
-clrlst() { LSS=() ; LST=() ; }
+clrlst() { LSS=() ; LST=() ; LCN=0 ; }
 
 # Add message
 # $1 - message
@@ -217,12 +229,7 @@ msgout() {
 	pline "$title" "$TITLE_COL"
 	pdash 50
 	for (( i = 0; i < ${#MSG[@]}; i++ )); do
-		((COLOR)) && text="${MSG[$i]}" || text="${flg[${MST[$i]}]} ${MSG[$i]}"
-		pline "$text" "${col[${MST[$i]}]}"
-		# text="$(parsecolor "${MSG[$i]}")"
-		# ((COLOR)) &&
-		# 	printf "${col[${MST[$i]}]}%b\n" "$text" ||
-		# 	printf '%s\n' "${flg[${MST[$i]}]} $text"
+		pitem "${MSG[$i]}" ${MST[$i]} col flg
 	done
 	pdash
 }
@@ -232,16 +239,14 @@ msgout() {
 lstout() {
 	declare title="${1:-List}"
 	declare -i i
-	declare -a col=("$Green" "$Red") flg=('+' '-')
+	declare -a col=("$Red" "$Green") flg=('-' '+')
 
-	getline
-	printf "${TITLE_COL}%s\n"  "$title"
-	printf "%s\n" "$UI_LINE"
+	pline "$title" "$TITLE_COL"
+	pdash 30
 	for (( i = 0; i < LCN; i++ )); do
-		((COLOR)) &&
-			printf "${col[${LSS[$i]}]}%s\n" "${LST[$i]}" ||
-			printf '%s\n' "${flg[${LSS[$i]}]} ${LST[$i]}"
+		pitem "${LST[$i]}" ${LSS[$i]} col flg
 	done
+	pdash
 }
 
 # print services
@@ -260,8 +265,7 @@ svcout() {
         SVO=()
     fi
     for ((i = 0; i < ${#SVC[@]}; i++)); do
-		((COLOR)) && text="${SVC[$i]}" || text="${flg[${SVS[$i]}]} ${SVC[$i]}"
-		pline "$text" "${col[${SVS[$i]}]}"
+		pitem "${SVC[$i]}" ${SVS[$i]} col flg
     done
     pdash
 }
@@ -416,17 +420,6 @@ chdir = /
 EOT
 }
 
-# site list
-# $1 - result array
-# $2 - available/enabled (0/1 - 0)
-sitelist() {
-	declare -n sites=$1
-	declare -i type=${2:-0}
-	declare dir cur
-	((type)) && dir="$HTTP_ENABLED" || dir="$HTTP_AVAILABLE"
-	cur="$PWD" ; cd "$dir" ; sites=($(ls *$CFG_EXT | sed "s/$CFG_EXT$//")) ; cd "$cur"
-}
-
 # host records management
 # $1 - operation (0:add, 1:delete) (add)
 # $2 - subject site
@@ -558,22 +551,32 @@ _site_rm_ext() {
     done
 }
 
+# site list
+# $1 - result array
+# $2 - available/enabled (0/1 - 0)
+sitelist() {
+	declare -n sites=$1
+	declare -i type=${2:-0}
+	declare dir cur
+	((type)) && dir="$HTTP_ENABLED" || dir="$HTTP_AVAILABLE"
+	cur="$PWD" ; cd "$dir" ; sites=($(ls *$CFG_EXT | sed "s/$CFG_EXT$//")) ; cd "$cur"
+}
+
 # list sites
 _site_list() {
 	checksite 1 || return 1
-	declare cur item
-	declare -a list
-
-	cur="$PWD"
-	cd "$DEV_PATH"
-	list=($(ls))
-	cd "$cur"
-
+	declare cur="$PWD" site
+	declare -i i
 	clrlst
-	for item in "${list[@]}"; do
-		additem "$item"
+	cd "$HTTP_AVAILABLE"
+	LST=($(ls *$CFG_EXT | sed "s/$CFG_EXT$//"))
+	echo "${LST[@]}"
+	LCN=${#LST[@]}
+	cd "$cur"
+	for site in "${LST[@]}"; do
+		[[ -L $HTTP_ENABLED/$site$CFG_EXT ]] && LSS+=(1) || LSS+=(0)
 	done
-	lstout
+	lstout "Site list"
 }
 
 # site management
@@ -581,9 +584,6 @@ site() {
     declare title
 	declare -a posarg
 	declare -i nposarg
-
-    # with no arguments call TUI
-    [[ -z ${1} ]] && _gui_site
 
 	FORCE=0 ; NAME= ; PHPV=$(phpver) ; ROOT="$DOC_ROOT"
     while (($# > 0)); do
@@ -611,7 +611,7 @@ site() {
         r | rm)		title="Removing site #Y$URLNAME" ; _site_dis ; _host 1 ; _site_rm ; [[ $URLNAME == $NAME ]] && _site_rm_ext ;;
         e | ena)	title="Enabling site #Y$URLNAME" ; _site_ena ;;
         d | dis)	title="Disabling site #Y$URLNAME" ; _site_dis ;;
-        l | list)	_site_list ; lstout ;;
+        l | list)	_site_list ; return 0 ;;
 		setup)		title="SITE setup" ; _envi_setup ;;
 		unset)		title="SITE clear away" ; _envi_unset ;;
         *)			addmsg "Command not recognized: #R$CMD" $MST_ERROR ;;

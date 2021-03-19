@@ -27,7 +27,11 @@ site rm website [ --php | -p X.Y ] [ --force | -f ]
 * --force - all EXTENDED sites, base site + source code will be removed.
 #### Disable / enable site
 ```
-site dis / ena website
+site d | dis / e | ena website
+```
+#### List sites
+```
+site l | list
 ```
 #### Services
 ```
