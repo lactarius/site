@@ -15,13 +15,14 @@ site unset
 ```
 #### Create new site
 ```
-site a | add website [ --root | -r PATH ] [ --php | -p X.Y ]
+site a | add website [ --root | -r PATH ] [ --php | -p X.Y ] [ --force | -f ]
 ```
 * --root - project doc root relative path (index.php)
 * --php	- PHP version - setting another than default system version, EXTENDED site with name websiteXY will be created beside the default version site.
+* --force - create **new** index.php in **new** docroot
 #### Remove site
 ```
-site rm website [ --php | -p X.Y ] [ --force | -f ]
+site r | rm website [ --php | -p X.Y ] [ --force | -f ]
 ```
 * --php - PHP version - when set, only the selected EXTENDED site will be removed.
 * --force - all EXTENDED sites, base site + source code will be removed.

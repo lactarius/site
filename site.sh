@@ -17,8 +17,7 @@ declare HTTP_ENABLED="$HTTP_PATH/sites-enabled"     # Enabled sites
 declare HTTP_EXT_PATH="$HTTP_PATH/common"			# Extemded settings directory
 declare PHP_PATH="$CONF_PATH/php"                   # PHP settings directory
 declare PHP_LIST=($(ls $PHP_PATH))                  # Installed PHP versions list
-declare DNS_PATH="$HOME/hosts"                 # Local DNS file
-#declare DNS_PATH="$CONF_PATH/hosts"                 # Local DNS file
+declare DNS_PATH="$CONF_PATH/hosts"                 # Local DNS file
 ######### Opts ########################
 declare CMD NAME URLNAME PHPV ROOT
 declare -i FORCE
@@ -105,14 +104,6 @@ phpver() {
 # 7.4 => 74
 phpversim() {
     echo "${1//./}"
-}
-
-# extract PHP version from extended name
-# $1 - extended site name
-# site74 => 7.4
-phpextver() {
-    declare sim="${1: -2}"
-    echo "${sim:0:1}.${sim:1}"
 }
 
 # PHP default version switcher
@@ -208,7 +199,7 @@ clrlst() { LSS=() ; LST=() ; LCN=0 ; }
 # $2 - type (common)
 addmsg() {
 	declare -i type=${2:-$MST_COMMON}
-	MSG+=("$1") ; MST+=($type) ; ((type)) && ECN+=1
+	MSG+=("$1") ; MST+=($type) ; ((type)) && ECN+=1 ; return 0
 }
 
 # Add list item
@@ -335,20 +326,15 @@ EOT
 
 # check SITE
 checksite() {
-	declare -i briefly=${1:-0}
-	[[ ! -d $DEV_PATH ]] && addmsg "The #Rdevelopment #rpath doesn't exist (#R$DEV_PATH#r)." $MST_ERROR
-	[[ ! -d $HTTP_EXT_PATH ]] && addmsg "NginX server #Rextension settings #rpath doesn't exist (#R$HTTP_EXT_PATH#r)." $MST_ERROR
-	if ((ECN)); then
-		((briefly > 0)) && clrmsg
-		addmsg "The #RSITE #ris not installed." $MST_ERROR
-		((briefly > 1)) && clrmsg
+	if [[ ! -d $DEV_PATH || ! -d $HTTP_EXT_PATH ]]; then
+		[[ -z $1 ]] && addmsg "The #RSITE #ris not installed." $MST_ERROR
 		return 1
 	fi
 }
 
 # prepare environment
 _envi_setup() {
-	checksite 2 && addmsg "The #RSITE #ris already installed." $MST_ERROR && return 1
+	checksite 1 && addmsg "The #RSITE #ris already installed." $MST_ERROR && return 1
     sudo mkdir "$HTTP_EXT_PATH" &&
         write "$(common_tpl)" "$HTTP_EXT_PATH/common.conf" &&
         write "$(nette_tpl)" "$HTTP_EXT_PATH/nette.conf" &&
@@ -359,7 +345,7 @@ _envi_setup() {
 
 # cancel environment
 _envi_unset() {
-	checksite
+	checksite || return 1
     [[ -d $DEV_PATH ]] && rm -r "$DEV_PATH" && addmsg "#gThe #Gdevelopment path #gremoved."
     [[ -d $HTTP_PATH/common ]] && sudo rm -r "$HTTP_PATH/common" &&
         addmsg "#GNginX extended settings #gremoved."
@@ -420,11 +406,11 @@ chdir = /
 EOT
 }
 
-# host records management
+# DNS records management
 # $1 - operation (0:add, 1:delete) (add)
 # $2 - subject site
-_host() {
-	declare -i op=${1:-0} found=0
+host() {
+	declare -i op=${1:-0} found basefound
     declare subject=${2:-$URLNAME} line newline ip site msg
     declare -a list newlist words inline ip6 cache
 
@@ -470,7 +456,7 @@ _host() {
 
 # enable site
 _site_ena() {
-	checksite 1 || return 1
+	checksite || return 1
 	declare name="$URLNAME$CFG_EXT"
     [[ -f $HTTP_AVAILABLE/$name && ! -L $HTTP_ENABLED/$name ]] &&
 		sudo ln -s "$HTTP_AVAILABLE/$name" "$HTTP_ENABLED" &&
@@ -479,7 +465,7 @@ _site_ena() {
 
 # disable site
 _site_dis() {
-	checksite 1 || return 1
+	checksite || return 1
 	declare name="$URLNAME$CFG_EXT"
     [[ -L $HTTP_ENABLED/$name ]] && sudo rm "$HTTP_ENABLED/$name" &&
 		addmsg "#gSite '#G$URLNAME#g' disabled."
@@ -487,11 +473,11 @@ _site_dis() {
 
 # add site
 _site_add() {
-	checksite 1 || return 1
+	checksite || return 1
     declare docroot="$(readlink -m "$DEV_PATH/$NAME/$ROOT")"
     declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d"
     declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
-    declare sitedef pooldef
+    declare indexpath sitedef pooldef
 
     [[ -z $NAME ]] && addmsg "Site name not given." $MST_ERROR
     [[ -f $sitepath ]] && addmsg "Site '#R$URLNAME#r' HTTP definition already exists." $MST_ERROR
@@ -514,57 +500,57 @@ _site_add() {
     [[ -z $indexpath || $FORCE -eq 1 ]] &&
         write "$(index_tpl)" "$docroot/index.php" &&
         addmsg "Site '#G$NAME#g' testing #Gindex.php #gfile added."
-
-    # site HTTP definition
+    # add site HTTP definition
     sitedef="$(site_tpl "$URLNAME" "$docroot" "$LOG_PATH")"
     write "$sitedef" "$sitepath" && addmsg "Site '#G$URLNAME#g' HTTP definition added."
-
-	# site FPM pool
+	# add site FPM pool
     pooldef="$(pool_tpl "$URLNAME" "$SITE_USER" "$SITE_GROUP" "$LISTEN_OWNER" "$LISTEN_GROUP")"
     write "$pooldef" "$poolpath/$NAME$CFG_EXT" &&
         addmsg "Pool '#G$NAME#g' FPM definition for #GPHP$PHPV #gadded."
-    return 0
+	# add DNS record
+	host
+	# enable
+	_site_ena
 }
 
-# remove site
-_site_rm() {
-	checksite 1 || return 1
-    declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d/$NAME$CFG_EXT"
+# remove HTTP & FPM defs & DNS record
+_server_rm() {
+	declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d/$NAME$CFG_EXT"
     declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
+
+	# disable
+	_site_dis
+	# DNS record remove
+	host 1
+    # fpm definition remove
+    [[ -f $poolpath ]] && sudo rm "$poolpath" && addmsg "Pool '#G$NAME#g' FPM definition for #GPHP$PHPV #gremoved."
+    # http definition remove
+    [[ -f $sitepath ]] && sudo rm "$sitepath" && addmsg "Site '#G$URLNAME#g' HTTP definition removed."
+}
+
+# remove site sources
+_site_rm() {
+	checksite || return 1
     declare devpath="$DEV_PATH/$NAME"
 
-    # fpm definition
-    [[ -f $poolpath ]] && sudo rm "$poolpath" && addmsg "Pool '#G$NAME#g' FPM definition for #GPHP$PHPV #gremoved."
-    # http definition
-    [[ -f $sitepath ]] && sudo rm "$sitepath" && addmsg "Site '#G$URLNAME#g' HTTP definition removed."
-    # remove sorces only with --force
-    [[ -d $devpath && $FORCE -eq 1 ]] && rm -r "$devpath" && addmsg "Site '#G$NAME#g' development path removed."
-}
-
-# remove all extensions
-_site_rm_ext() {
-    for PHPV in "${PHP_LIST[@]}"; do
-        URLNAME="$NAME$(phpversim $PHPV)"
-        _site_dis
-        _host 1
-        _site_rm
-    done
-}
-
-# site list
-# $1 - result array
-# $2 - available/enabled (0/1 - 0)
-sitelist() {
-	declare -n sites=$1
-	declare -i type=${2:-0}
-	declare dir cur
-	((type)) && dir="$HTTP_ENABLED" || dir="$HTTP_AVAILABLE"
-	cur="$PWD" ; cd "$dir" ; sites=($(ls *$CFG_EXT | sed "s/$CFG_EXT$//")) ; cd "$cur"
+	# trying to remove extended site sources
+	[[ ! -d $devpath ]] && addmsg "Site '#R$NAME#r' is not a base site." $MST_ERROR && return 1
+	# remove server definitions
+	if ((FORCE)); then
+		for PHPV in "${PHP_LIST[@]}"; do
+			[[ $PHPV == $(phpver) ]] && URLNAME=$NAME || URLNAME="$NAME$(phpversim $PHPV)"
+			_server_rm
+		done
+		# sources remove
+		rm -r "$devpath" && addmsg "Site '#G$NAME#g' development path removed."
+	else
+		_server_rm
+	fi
 }
 
 # list sites
 _site_list() {
-	checksite 1 || return 1
+	checksite || return 1
 	declare cur="$PWD" site
 	declare -i i
 	clrlst
@@ -607,8 +593,8 @@ site() {
 
 	clrmsg
     case $CMD in
-        a | add)	title="Adding site #Y$URLNAME" ; _site_add && _host && _site_ena ;;
-        r | rm)		title="Removing site #Y$URLNAME" ; _site_dis ; _host 1 ; _site_rm ; [[ $URLNAME == $NAME ]] && _site_rm_ext ;;
+        a | add)	title="Adding site #Y$URLNAME" ; _site_add ;;
+        r | rm)		title="Removing site #Y$URLNAME" ; _site_rm ;;
         e | ena)	title="Enabling site #Y$URLNAME" ; _site_ena ;;
         d | dis)	title="Disabling site #Y$URLNAME" ; _site_dis ;;
         l | list)	_site_list ; return 0 ;;
