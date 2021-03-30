@@ -22,8 +22,140 @@ declare DNS_PATH="$CONF_PATH/hosts"                 # Local DNS file
 declare CMD NAME URLNAME PHPV ROOT
 declare -i FORCE
 
-######### Utilities ###################
+######### Templates ###################
+# NginX
+# common
+common_tpl() {
+    cat <<'EOT'
+index index.html index.htm;
 
+error_page   500 502 503 504  /50x.html;
+location = /50x.html {
+	root   html;
+}
+
+#location ~ \.(js|ico|gif|jpg|png|css|rar|zip|tar\.gz)$ { }
+
+location ~ /\.(ht|gitignore) { # deny access to .htaccess files, if Apache's document root concurs with nginx's one
+    deny all;
+}
+
+location ~ \.(neon|ini|log|yml)$ { # deny access to configuration files
+    deny all;
+}
+
+location = /robots.txt  { access_log off; log_not_found off; }
+location = /humans.txt  { access_log off; log_not_found off; }
+location = /favicon.ico { access_log off; log_not_found off; }
+
+proxy_buffer_size   128k;
+proxy_buffers   4 256k;
+proxy_busy_buffers_size   256k;
+
+fastcgi_buffers 8 16k; fastcgi_buffer_size 32k;
+
+client_max_body_size 45M;
+client_body_buffer_size 128k;
+EOT
+}
+
+# nette
+nette_tpl() {
+    cat <<'EOT'
+try_files $uri $uri/ /index.php?$args;
+EOT
+}
+
+# php
+php_tpl() {
+    cat <<'EOT'
+index index.php index.html index.htm;
+
+location ~ \.php$ {
+	fastcgi_send_timeout 1800;
+	fastcgi_read_timeout 1800;
+	fastcgi_connect_timeout 1800;
+	#fastcgi_pass	127.0.0.1:9000;
+	fastcgi_pass	unix:/run/php/$server_name.sock;
+	fastcgi_index	index.php;
+    fastcgi_param	SCRIPT_FILENAME $document_root$fastcgi_script_name;
+	include		fastcgi_params;
+}
+EOT
+}
+
+# site definition
+# $1 - site name
+# $2 - document root path
+# $3 - log path
+site_tpl() {
+    cat <<EOT
+server {
+	listen 80;
+	server_name $1;
+	charset     utf-8;
+
+	root $2;
+
+	error_log   $3/$1.error.log;
+	access_log  $3/$1.access.log;
+
+    include common/common.conf;
+    include common/php.conf;
+    include common/nette.conf;
+}
+EOT
+}
+
+# testing index.php file
+index_tpl() {
+    cat <<EOT
+<?php phpinfo();
+EOT
+}
+
+# fpm pool
+# $1 - site name
+# $2 - user
+# $3 - group
+# #4 - listen owner
+# #5 - listen group
+pool_tpl() {
+    cat <<EOT
+[$1]
+user = $2
+group = $3
+listen = /run/php/$1.sock
+listen.owner = $4
+listen.group = $5
+
+pm = dynamic
+pm.start_servers = 3
+pm.max_children = 5
+pm.min_spare_servers = 2
+pm.max_spare_servers = 4
+chdir = /
+EOT
+}
+
+# SITE banner
+banner_tpl() {
+	cat <<EOT
+  _____ _____ _______ ______
+ / ____|_   _|__   __|  ____|
+| (___   | |    | |  | |__
+ \___ \  | |    | |  |  __|
+ ____) |_| |_   | |  | |____
+|_____/|_____|  |_|  |______|
+
+    Webdeveloper helper
+         ( LEMP )
+https://github.com/lactarius/site
+
+EOT
+}
+
+######### Utilities ###################
 # left trim
 # $1 - string
 ltrim() {
@@ -53,32 +185,47 @@ sort_array() {
 # search value in array
 # $1 - needle
 # $2 - array haystack name
-# $3 - return - 0 - print found index, 1 - -//- value
-# $4 - compare - 0 - string ==, 1 - regular =~, 2 - numeric ==
-# $5 - first or all 0 - first match 1 - all matches
-# $6 - matches array name
-# returns 0 when found
+# $3 - options (isf)
+# options:	def. return - value, i - index
+#			def. compare - as string, r - regular, n - numeric
+#			def. quantity - none, f - first match, m - multiple matches, a - add to existing results
+# $4 - result name
 searcharray() {
-    declare value="$1" item result
-    declare -n haystack=$2 retarr=$6
-    declare -i retval=${3:-0} comp=${4:-0} all=${5:-0} i cnt=${#haystack[@]} found=0
+	declare needle="$1" opt=$3 item
+	declare -n haystack=$2 result=$4
+	declare -i i found=0
 
-    for ((i = 0; i < cnt; i++)); do
+	[[ $opt =~ m ]] && result=()
+    for ((i = 0; i < ${#haystack[@]}; i++)); do
         item="${haystack[$i]}"
-        if [[ $comp -eq 0 && $item == $value ]] ||
-            [[ $comp -eq 1 && $item =~ $value ]] ||
-            ((comp == 2 && item == value)); then
-            ((!retval)) && item=$i
-            if ((all)); then
-                retarr+=("$item")
-            else
-                found=1
-                break
-            fi
+        if [[ $opt =~ n && $item -eq $needle ]] || [[ $opt =~ r && $item =~ $needle ]] ||
+        	[[ $item == $needle ]]; then
+				found=1 ; [[ $opt =~ i ]] && item=$i
+				[[ $opt =~ f ]] && result=$item
+				[[ $opt =~ a|m ]] && result+=($item) || break
         fi
     done
     ((!found)) && return 1
-    echo "$item"
+}
+
+# Fill array with dirlist
+# $1 - array name
+# $2 - path (.)
+# $3 - type f - files d - dirs (files)
+# $4 - file extension ($CFG_EXT)
+getdir() {
+	declare -n array=$1
+	declare path="${2:-.}" type=${3:-f} ext=${4:-$CFG_EXT} wc=*
+
+	[[ $type == d ]] && wc=*/
+	# load listing
+	array=("$path/"$wc)
+	# files => trailing .ext, dirs => trailing /
+	[[ $type == f ]] && array=("${array[@]%$ext}") || array=("${array[@]%/}")
+	# remove path
+	array=("${array[@]##*/}")
+	# empty dir
+	array=("${array[@]%\*}")
 }
 
 # write text to file
@@ -218,7 +365,7 @@ msgout() {
 	declare -a col=("$Green" "$Red") flg=('-' 'E')
 
 	pline "$title" "$TITLE_COL"
-	pdash 50
+	pdash 40
 	for (( i = 0; i < ${#MSG[@]}; i++ )); do
 		pitem "${MSG[$i]}" ${MST[$i]} col flg
 	done
@@ -250,7 +397,7 @@ svcout() {
 	pdash 30
     if ((${#SVO[@]})); then
         for op in "${SVO[@]}"; do
-			pline "$op" "${col[1]}"
+			pline "$op" "$IYellow"
         done
         pdash
         SVO=()
@@ -261,69 +408,7 @@ svcout() {
     pdash
 }
 
-######### Environment #################
-
-# NginX
-# common
-common_tpl() {
-    cat <<'EOT'
-index index.html index.htm;
-
-error_page   500 502 503 504  /50x.html;
-location = /50x.html {
-	root   html;
-}
-
-#location ~ \.(js|ico|gif|jpg|png|css|rar|zip|tar\.gz)$ { }
-
-location ~ /\.(ht|gitignore) { # deny access to .htaccess files, if Apache's document root concurs with nginx's one
-    deny all;
-}
-
-location ~ \.(neon|ini|log|yml)$ { # deny access to configuration files
-    deny all;
-}
-
-location = /robots.txt  { access_log off; log_not_found off; }
-location = /humans.txt  { access_log off; log_not_found off; }
-location = /favicon.ico { access_log off; log_not_found off; }
-
-proxy_buffer_size   128k;
-proxy_buffers   4 256k;
-proxy_busy_buffers_size   256k;
-
-fastcgi_buffers 8 16k; fastcgi_buffer_size 32k;
-
-client_max_body_size 45M;
-client_body_buffer_size 128k;
-EOT
-}
-
-# nette
-nette_tpl() {
-    cat <<'EOT'
-try_files $uri $uri/ /index.php?$args;
-EOT
-}
-
-# php
-php_tpl() {
-    cat <<'EOT'
-index index.php index.html index.htm;
-
-location ~ \.php$ {
-	fastcgi_send_timeout 1800;
-	fastcgi_read_timeout 1800;
-	fastcgi_connect_timeout 1800;
-	#fastcgi_pass	127.0.0.1:9000;
-	fastcgi_pass	unix:/run/php/$server_name.sock;
-	fastcgi_index	index.php;
-    fastcgi_param	SCRIPT_FILENAME $document_root$fastcgi_script_name;
-	include		fastcgi_params;
-}
-EOT
-}
-
+######### Site ########################
 # check SITE
 checksite() {
 	if [[ ! -d $DEV_PATH || ! -d $HTTP_EXT_PATH ]]; then
@@ -332,86 +417,13 @@ checksite() {
 	fi
 }
 
-# prepare environment
-_envi_setup() {
-	checksite 1 && addmsg "The #RSITE #ris already installed." $MST_ERROR && return 1
-    sudo mkdir "$HTTP_EXT_PATH" &&
-        write "$(common_tpl)" "$HTTP_EXT_PATH/common.conf" &&
-        write "$(nette_tpl)" "$HTTP_EXT_PATH/nette.conf" &&
-        write "$(php_tpl)" "$HTTP_EXT_PATH/php.conf" &&
-        addmsg "#GNginX extended settings #gadded."
-    mkdir "$DEV_PATH" && addmsg "The #Gdevelopment path #gcreated."
-}
-
-# cancel environment
-_envi_unset() {
-	checksite || return 1
-    [[ -d $DEV_PATH ]] && rm -r "$DEV_PATH" && addmsg "#gThe #Gdevelopment path #gremoved."
-    [[ -d $HTTP_PATH/common ]] && sudo rm -r "$HTTP_PATH/common" &&
-        addmsg "#GNginX extended settings #gremoved."
-}
-
-######### Site ########################
-# site definition
-# $1 - site name
-# $2 - document root path
-# $3 - log path
-site_tpl() {
-    cat <<EOT
-server {
-	listen 80;
-	server_name $1;
-	charset     utf-8;
-
-	root $2;
-
-	error_log   $3/$1.error.log;
-	access_log  $3/$1.access.log;
-
-    include common/common.conf;
-    include common/php.conf;
-    include common/nette.conf;
-}
-EOT
-}
-
-# testing index.php file
-index_tpl() {
-    cat <<EOT
-<?php phpinfo();
-EOT
-}
-
-# fpm pool
-# $1 - site name
-# $2 - user
-# $3 - group
-# #4 - listen owner
-# #5 - listen group
-pool_tpl() {
-    cat <<EOT
-[$1]
-user = $2
-group = $3
-listen = /run/php/$1.sock
-listen.owner = $4
-listen.group = $5
-
-pm = dynamic
-pm.start_servers = 3
-pm.max_children = 5
-pm.min_spare_servers = 2
-pm.max_spare_servers = 4
-chdir = /
-EOT
-}
-
 # DNS records management
 # $1 - operation (0:add, 1:delete) (add)
 # $2 - subject site
+# $3 - base site
 host() {
 	declare -i op=${1:-0} found basefound
-    declare subject=${2:-$URLNAME} line newline ip site msg
+    declare subject=${2:-$URLNAME} base=${3:-$NAME} line newline ip site msg
     declare -a list newlist words inline ip6 cache
 
 	# load hosts
@@ -548,6 +560,24 @@ _site_rm() {
 	fi
 }
 
+# remove all projects
+_site_rm_all() {
+	declare -a sites
+	declare -i count
+
+	getdir sites "$DEV_PATH" d
+	count=${#sites[@]}
+	((!count)) && return 0
+	if ((FORCE)); then
+		for NAME in "${sites[@]}"; do
+			_site_rm
+		done
+	else
+		addmsg "#R$count #rproject(s) remaining !" $MST_ERROR
+		return 1
+	fi
+}
+
 # list sites
 _site_list() {
 	checksite || return 1
@@ -565,6 +595,33 @@ _site_list() {
 	lstout "Site list"
 }
 
+######### Environment #################
+# prepare environment
+_envi_setup() {
+	checksite 1 && addmsg "The #RSITE #ris already installed." $MST_ERROR && return 1
+    sudo mkdir "$HTTP_EXT_PATH" &&
+        write "$(common_tpl)" "$HTTP_EXT_PATH/common.conf" &&
+        write "$(nette_tpl)" "$HTTP_EXT_PATH/nette.conf" &&
+        write "$(php_tpl)" "$HTTP_EXT_PATH/php.conf" &&
+        addmsg "#GNginX extended settings #gadded."
+    mkdir "$DEV_PATH" && addmsg "The #Gdevelopment path #gcreated."
+	addmsg "#GSITE #ginstalled."
+	banner_tpl
+}
+
+# cancel environment
+_envi_unset() {
+	checksite || return 1
+	# remove remaining projects if forced
+	if _site_rm_all; then
+		[[ -d $DEV_PATH ]] && rm -r "$DEV_PATH" && addmsg "#gThe #Gdevelopment path #gremoved."
+	    [[ -d $HTTP_PATH/common ]] && sudo rm -r "$HTTP_PATH/common" &&
+	        addmsg "#GNginX extended settings #gremoved."
+		addmsg "#GSITE #guninstalled."
+		banner_tpl
+	fi
+}
+
 # site management
 site() {
     declare title
@@ -574,7 +631,7 @@ site() {
 	FORCE=0 ; NAME= ; PHPV=$(phpver) ; ROOT="$DOC_ROOT"
     while (($# > 0)); do
         case $1 in
-            -f | --force)	FORCE=1 ;;
+            -f | --force)			FORCE=1 ;;
             -n | --name)	shift ; NAME=$1 ;;
             -p | --php)		shift ; PHPV=$1 ;;
             -r | --root)	shift ; ROOT=$1 ;;
@@ -598,6 +655,7 @@ site() {
         e | ena)	title="Enabling site #Y$URLNAME" ; _site_ena ;;
         d | dis)	title="Disabling site #Y$URLNAME" ; _site_dis ;;
         l | list)	_site_list ; return 0 ;;
+		h | help)	banner_tpl ; return 0 ;;
 		setup)		title="SITE setup" ; _envi_setup ;;
 		unset)		title="SITE clear away" ; _envi_unset ;;
         *)			addmsg "Command not recognized: #R$CMD" $MST_ERROR ;;
@@ -606,7 +664,6 @@ site() {
 }
 
 ######### Services ####################
-
 # Load status
 _svc_load() {
     declare selection line name
@@ -648,7 +705,7 @@ svc() {
         if ((${#sel[@]})); then
             svcact=()
             for name in "${sel[@]}"; do
-                searcharray $name SVC 1 1 1 svcact
+                searcharray $name SVC ra svcact
             done
         else
             svcact=("${SVC[@]}")
