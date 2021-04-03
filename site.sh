@@ -156,12 +156,6 @@ EOT
 }
 
 ######### Utilities ###################
-# left trim
-# $1 - string
-ltrim() {
-	echo "${1##*( )}"
-}
-
 # is string an IPv4 address?
 # $1 - tested string
 is_ip4() {
@@ -191,21 +185,21 @@ sort_array() {
 #			def. quantity - none, f - first match, m - multiple matches, a - add to existing results
 # $4 - result name
 searcharray() {
-	declare needle="$1" opt=$3 item
-	declare -n haystack=$2 result=$4
-	declare -i i found=0
+	declare needle=$1 opt=$3 item chk
+	declare -n haystack=$2 result=${4:-chk}
+	declare -i i found=1
 
 	[[ $opt =~ m ]] && result=()
     for ((i = 0; i < ${#haystack[@]}; i++)); do
         item="${haystack[$i]}"
         if [[ $opt =~ n && $item -eq $needle ]] || [[ $opt =~ r && $item =~ $needle ]] ||
         	[[ $item == $needle ]]; then
-				found=1 ; [[ $opt =~ i ]] && item=$i
+				found=0 ; [[ $opt =~ i ]] && item=$i
 				[[ $opt =~ f ]] && result=$item
 				[[ $opt =~ a|m ]] && result+=($item) || break
         fi
     done
-    ((!found)) && return 1
+    return $found
 }
 
 # Fill array with dirlist
@@ -719,3 +713,6 @@ svc() {
     fi
     svcout
 }
+
+######### End of code #################
+pline '+#Ys' $Yellow
