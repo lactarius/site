@@ -1,9 +1,13 @@
 # SITE
 LEMP with multiversion PHP project manager
 
-#### Load SITE helper
+#### Installation example
 ```
-. site.sh
+cp site.sh ~/.local/lib/
+```
+End of the **~/.profile** file:
+```
+[ -f $HOME/.local/lib/site.sh ] && . $HOME/.local/lib/site.sh
 ```
 #### Setup the environment
 ```
@@ -76,3 +80,5 @@ _Switch default **PHP** version to **7.0**_
 ```
 svc v 7.0
 ```
+#### Unit tests
+[shUnit2](https://github.com/kward/shunit2) framework used. See docs.
