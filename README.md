@@ -1,13 +1,14 @@
 # SITE
-LEMP with multiversion PHP project manager
+Project manager for LEMP server\
+(NginX, MariaDB, PHP-FPM) with multiversion PHP
 
-#### Installation example
+#### Installation
 ```
 cp site.sh ~/.local/lib/
 ```
 End of the **~/.profile** file:
 ```
-[ -f $HOME/.local/lib/site.sh ] && . $HOME/.local/lib/site.sh
+. $HOME/.local/lib/site.sh
 ```
 #### Setup the environment
 ```
@@ -15,15 +16,15 @@ site setup
 ```
 #### Remove the environment
 ```
-site unset
+site unset [ --force | -f ]
 ```
 #### Create new site
 ```
 site a | add website [ --root | -r PATH ] [ --php | -p X.Y ] [ --force | -f ]
 ```
-* --root - project doc root relative path (index.php)
-* --php	- PHP version - setting another than default system version, EXTENDED site with name websiteXY will be created beside the default version site.
-* --force - create **new** index.php in **new** docroot
+- --root - project doc root relative path (index.php)
+- --php	- PHP version - setting another than default system version, EXTENDED site with name websiteXY will be created beside the default version site.
+- --force - create **new** index.php in **new** docroot
 #### Remove site
 ```
 site r | rm website [ --php | -p X.Y ] [ --force | -f ]
@@ -47,6 +48,15 @@ svc [ p | r | s  service(s) ][ v X.Y ]
 * s - start
 * v - switch default PHP version
 
+#### Composer
+```
+cps [ a | i | u | r package ]
+```
+* a - _require_	- add package
+* i - _install_	- install dependency
+* u - _update_ - update package
+* r - _remove_ - remove package
+* . - list shortcuts
 #### Examples
 _Create empty site **webarchive**_
 ```

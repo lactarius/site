@@ -403,6 +403,30 @@ svcout() {
 }
 
 ######### Site ########################
+site_help() {
+	echo -e "$(parsecolor "	#gSITE
+	#w----------------------------------------------------------------------------------------------
+	#ysite #Y[cmd] #y[name] [arg]\n
+	#gCreate site\n
+	#Yadd #y<name>\t\t\t#wCreate site #Wname #wwith default docroot #W$DOC_ROOT #won default #WPHP$(phpver)
+	#Yadd #y<name> #Y--root src/www\t#wCreate site #Wname #wwith docroot #Wsrc/www #won default #WPHP$(phpver)
+	#Yadd #y<name> #Y--php 7.3\t\t#wCreate site #Wname #wextension #Wname73 #won #WPHP7.3\n
+	#gRemove site\n
+	#Yrm #y<name>\t\t\t#wRemove site #Wname
+	#Yrm #y<name> #Y--php 7.3\t\t#wRemove site #Wname #wextension #Wname73
+	#Yrm #y<name> #Y--force\t\t#wRemove site #Wname #wwith sources\n
+	#gOther\n
+	#Ydis #y<name>\t\t\t#wDisable site #Wname
+	#Yena #y<name>\t\t\t#wEnable site #Wname
+	#Ylist\t\t\t\t#wList sites
+	#Ysetup\t\t\t\t#wSetup environment
+	#Yunset\t\t\t\t#wRemove environment
+	#Yunset --force\t\t\t#wRemove #Wall existing projects #wand environment\n
+	#gShorter notation\n
+	#Yadd #y<name> #Y--root src/www #w= #Ya #y<name> #Y-r #ysrc/www #wetc...
+	#w----------------------------------------------------------------------------------------------")"
+}
+
 # check SITE
 checksite() {
 	if [[ ! -d $DEV_PATH || ! -d $HTTP_EXT_PATH ]]; then
@@ -635,8 +659,8 @@ site() {
     done
 
 	nposarg=${#posarg[@]}
-	# command word 1. positional - must exist
-	((nposarg)) && CMD=${posarg[0]} || return 5
+	# command word 1. positional
+	((nposarg)) && CMD=${posarg[0]}
 	# site name can be 2. positional
 	[[ $nposarg -gt 1 && -z $NAME ]] && NAME=${posarg[1]}
     # not system default php version - extended site
@@ -648,16 +672,27 @@ site() {
         r | rm)		title="Removing site #Y$URLNAME" ; _site_rm ;;
         e | ena)	title="Enabling site #Y$URLNAME" ; _site_ena ;;
         d | dis)	title="Disabling site #Y$URLNAME" ; _site_dis ;;
-        l | list)	_site_list ; return 0 ;;
-		h | help)	banner_tpl ; return 0 ;;
 		setup)		title="SITE setup" ; _envi_setup ;;
 		unset)		title="SITE clear away" ; _envi_unset ;;
-        *)			addmsg "Command not recognized: #R$CMD" $MST_ERROR ;;
+        l | list)	_site_list ; return 0 ;;
+        *)			site_help ; return 0 ;;
     esac
     msgout "$title"
 }
 
 ######### Services ####################
+svc_help() {
+	echo -e "$(parsecolor "	#gSERVICES
+	#w----------------------------------------------------------------------------------------------
+	#ysvc #Y[cmd] #y[srv]..[srv]\n
+	#Y-\t\t\t#wList services
+	#Yp\t#ystop\t\t#wStop all services / certain service(s)
+	#Yr\t#yrestart\t\t#wRestart all services / certain service(s)
+	#Ys\t#ystart\t\t#wStart all services / certain service(s)
+	#Yv\t#yswitch\t\t#wSwitch default PHP to version x.y
+	#w----------------------------------------------------------------------------------------------")"
+}
+
 # Load status
 _svc_load() {
     declare selection line name
@@ -681,17 +716,12 @@ svc() {
     declare -a sel=("${@:2}") svcact
 
     case $cmd in
-        h | help)
-            _svc_help
-            return 0
-            ;;
-        v)
-            phpsw "${sel[0]}"
-            return 0
-            ;;
+        v) phpsw "${sel[0]}" ; return 0 ;;
         p) cmd=stop ;;
         r) cmd=restart ;;
         s) cmd=start ;;
+		h) svc_help ; return 0 ;;
+		-) pline "#wMeant #rnothing#w, not a #rdash#w..." ; return 0 ;;
         *) cmd=list ;;
     esac
     _svc_load
@@ -714,5 +744,51 @@ svc() {
     svcout
 }
 
+cps_help() {
+	echo -e "$(parsecolor "	#gCOMPOSER SHORTCUTS
+	#w----------------------------------------------------------------------------------------------
+	#ycps #Y<cmd> #y[vendor/package]\n
+	#gUpdate\n
+	#Yu\t#yupdate [v/p] | [v/*]\t\t#wUpdate all packages / Update package / Update vendor
+	#Yud\t#yupdate --with-dependencies\t#wUpdate all packages with dependencies
+	#Yul\t#yupdate --lock\t\t\t#wUpdate #Wcomposer.lock
+	#Ysu\t#yself-update\t\t\t#wUpdate composer\n
+	#gAdd\n
+	#Ya\t#yrequire <v/p>\t\t\t#wAdd package
+	#Yad\t#yrequire <v/p> --dev\t\t#wAdd package to #Wrequire-dev #wsection\n
+	#gRemove\n
+	#Yr\t#yremove <v/p>\t\t\t#wRemove package\n
+	#gInstall dependencies\n
+	#Yi\t#yinstall\t\t\t\t#wInstall all dependencies
+	#Yid\t#yinstall --dry-run\t\t#wSimulate installing dependencies\n
+	#gSpecial\n
+	#Ycp\t#ycreate-project <v/p>\t\t#wCreate project
+	#w----------------------------------------------------------------------------------------------")"
+}
+
+######### Composer ####################
+# Composer shortcuts
+cps() {
+	declare cmdline='composer ' cmd=${1:-h} pkg=$2
+
+	case $cmd in
+		u)	cmdline+="update $pkg" ;;
+		ud)	cmdline+="update --with-dependencies" ;;
+		ul)	cmdline+="update --lock" ;;
+		su)	cmdline="sudo composer self-update" ;;
+		i)	cmdline+="install" ;;
+		id)	cmdline+="install --dry-run" ;;
+		a)	cmdline+="require" ;;
+		ad)	cmdline+="require --dev" ;;
+		r)	cmdline+="remove" ;;
+		c)	cmdline+="create-project" ;;
+		*)	cps_help ; return 0 ;;
+	esac
+
+	read -e -p "$(echo -e -n "$(parsecolor "#yComposer")"): " -i "$cmdline" cmdline
+
+	eval "$cmdline"
+}
+
 ######### End of code #################
-pline '+#Ys' $Yellow
+pline '+#Ycharged 21.4. 9:00' $Blue
