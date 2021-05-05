@@ -641,6 +641,8 @@ _envi_unset() {
 }
 
 # site management
+# $1 - command
+# $2-X - arguments
 site() {
     declare title
 	declare -a posarg
@@ -675,6 +677,7 @@ site() {
 		setup)		title="SITE setup" ; _envi_setup ;;
 		unset)		title="SITE clear away" ; _envi_unset ;;
         l | list)	_site_list ; return 0 ;;
+		-) pline "#wMeant #rnothing#w, not a #rdash#w..." ; return 0 ;;
         *)			site_help ; return 0 ;;
     esac
     msgout "$title"
@@ -744,6 +747,7 @@ svc() {
     svcout
 }
 
+######### Composer ####################
 cps_help() {
 	echo -e "$(parsecolor "	#gCOMPOSER SHORTCUTS
 	#w----------------------------------------------------------------------------------------------
@@ -766,8 +770,9 @@ cps_help() {
 	#w----------------------------------------------------------------------------------------------")"
 }
 
-######### Composer ####################
-# Composer shortcuts
+# composer shortcuts
+# $1 - command
+# $2 - package
 cps() {
 	declare cmdline='composer ' cmd=${1:-h} pkg=$2
 
@@ -782,6 +787,7 @@ cps() {
 		ad)	cmdline+="require --dev" ;;
 		r)	cmdline+="remove" ;;
 		c)	cmdline+="create-project" ;;
+		-)	pline "#wMeant #rnothing#w, not a #rdash#w..." ; return 0 ;;
 		*)	cps_help ; return 0 ;;
 	esac
 
@@ -789,6 +795,3 @@ cps() {
 
 	eval "$cmdline"
 }
-
-######### End of code #################
-pline '+#Ycharged 21.4. 9:00' $Blue

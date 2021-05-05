@@ -39,6 +39,10 @@ site d | dis / e | ena website
 ```
 site l | list
 ```
+#### Help
+```
+site -
+```
 #### Services
 ```
 svc [ p | r | s  service(s) ][ v X.Y ]
@@ -47,7 +51,8 @@ svc [ p | r | s  service(s) ][ v X.Y ]
 * r - restart
 * s - start
 * v - switch default PHP version
-
+* \- - list services
+* h - help
 #### Composer
 ```
 cps [ a | i | u | r package ]
@@ -56,7 +61,7 @@ cps [ a | i | u | r package ]
 * i - _install_	- install dependency
 * u - _update_ - update package
 * r - _remove_ - remove package
-* . - list shortcuts
+* \- - list shortcuts
 #### Examples
 _Create empty site **webarchive**_
 ```
