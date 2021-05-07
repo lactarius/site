@@ -785,7 +785,7 @@ cps() {
 		a)	cmdline+="require" ;;
 		ad)	cmdline+="require --dev" ;;
 		r)	cmdline+="remove" ;;
-		c)	cmdline+="create-project" ;;
+		cp)	cmdline+="create-project" ;;
 		-)	pline "#wMeant #rnothing#w, not a #rdash#w..." ; return 0 ;;
 		*)	cps_help ; return 0 ;;
 	esac
