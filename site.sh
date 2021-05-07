@@ -677,7 +677,6 @@ site() {
 		setup)		title="SITE setup" ; _envi_setup ;;
 		unset)		title="SITE clear away" ; _envi_unset ;;
         l | list)	_site_list ; return 0 ;;
-		-) pline "#wMeant #rnothing#w, not a #rdash#w..." ; return 0 ;;
         *)			site_help ; return 0 ;;
     esac
     msgout "$title"
