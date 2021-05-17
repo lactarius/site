@@ -604,7 +604,6 @@ _site_list() {
 	clrlst
 	cd "$HTTP_AVAILABLE"
 	LST=($(ls *$CFG_EXT | sed "s/$CFG_EXT$//"))
-	echo "${LST[@]}"
 	LCN=${#LST[@]}
 	cd "$cur"
 	for site in "${LST[@]}"; do
@@ -676,10 +675,10 @@ site() {
         d | dis)	title="Disabling site #Y$URLNAME" ; _site_dis ;;
 		setup)		title="SITE setup" ; _envi_setup ;;
 		unset)		title="SITE clear away" ; _envi_unset ;;
-        l | list)	_site_list ; return 0 ;;
-        *)			site_help ; return 0 ;;
+        l | list)	_site_list ;;
+        h | --help)	site_help ;;
     esac
-    msgout "$title"
+    [[ $title ]] && msgout "$title"
 }
 
 ######### Services ####################
@@ -722,8 +721,7 @@ svc() {
         p) cmd=stop ;;
         r) cmd=restart ;;
         s) cmd=start ;;
-		h) svc_help ; return 0 ;;
-		-) pline "#wMeant #rnothing#w, not a #rdash#w..." ; return 0 ;;
+		h | --help) svc_help ; return 0 ;;
         *) cmd=list ;;
     esac
     _svc_load
@@ -786,7 +784,6 @@ cps() {
 		ad)	cmdline+="require --dev" ;;
 		r)	cmdline+="remove" ;;
 		cp)	cmdline+="create-project" ;;
-		-)	pline "#wMeant #rnothing#w, not a #rdash#w..." ; return 0 ;;
 		*)	cps_help ; return 0 ;;
 	esac
 
