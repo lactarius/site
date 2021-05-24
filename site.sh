@@ -771,7 +771,8 @@ cps_help() {
 # $1 - command
 # $2 - package
 cps() {
-	declare cmdline='composer ' cmd=${1:-h} pkg=$2
+	declare cmdline='composer ' cmd=${1:-h}
+	declare -a pkg="${@:2}"
 
 	case $cmd in
 		u)	cmdline+="update $pkg" ;;
@@ -787,7 +788,7 @@ cps() {
 		*)	cps_help ; return 0 ;;
 	esac
 
-	read -e -p "$(echo -e -n "$(parsecolor "#yComposer")"): " -i "$cmdline" cmdline
+	read -e -p "$(echo -e -n "$(parsecolor "#yComposer")"): " -i "$cmdline ${pkg[@]}" cmdline
 
 	eval "$cmdline"
 }
