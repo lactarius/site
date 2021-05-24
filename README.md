@@ -79,6 +79,11 @@ $ cps [ a | i | u | r package ]
 * u - _update_ - update package
 * r - _remove_ - remove package
 * \- - list shortcuts
+#### Clear cache
+```
+$ (cd project_directory...)
+$ clc
+```
 #### Examples
 _Create empty site **webarchive**_
 ```

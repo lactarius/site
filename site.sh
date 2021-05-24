@@ -1,5 +1,6 @@
 ######### Settings & Defaults #########
 declare DEV_PATH="$HOME/virt"	# Projects directory
+declare CACHE_PATH="temp"		# Application cache path
 declare DOC_ROOT="www"			# Default Document Root
 declare SITE_USER="$USER"		# FPM pool defaults
 declare SITE_GROUP="$USER"		#
@@ -791,4 +792,19 @@ cps() {
 	read -e -p "$(echo -e -n "$(parsecolor "#yComposer")"): " -i "$cmdline ${pkg[@]}" cmdline
 
 	eval "$cmdline"
+}
+
+# Cache clear
+clc() {
+	declare cachedir="$CACHE_PATH/cache"
+
+	clrmsg
+	if [[ -d $CACHE_PATH ]]; then
+
+		[[ -d $cachedir && $(ls -A $cachedir) ]] && rm -rf $CACHE_PATH && addmsg "Cache #Gcleared#g." ||
+		addmsg "Cache #Gempty#g."
+	else
+		addmsg "Are You in the project directory ?" $MST_ERROR
+	fi
+	msgout "Cache"
 }
