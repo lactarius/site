@@ -72,6 +72,7 @@ $ svc [ p | r | s  service(s) ][ v X.Y ]
 * h - help
 #### Composer
 ```
+$ (cd project_directory...)
 $ cps [ a | i | u | r package ]
 ```
 * a - _require_	- add package

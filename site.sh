@@ -508,7 +508,7 @@ _site_add() {
     declare docroot="$(readlink -m "$DEV_PATH/$NAME/$ROOT")"
     declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d"
     declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
-    declare indexpath sitedef pooldef
+    declare indexpath sitedef pooldef tempdir logdir
 
     [[ -z $NAME ]] && addmsg "Site name not given." $MST_ERROR
     [[ -f $sitepath ]] && addmsg "Site '#R$URLNAME#r' HTTP definition already exists." $MST_ERROR
@@ -520,6 +520,11 @@ _site_add() {
     if [[ -d $DEV_PATH/$NAME ]]; then
         indexpath=$(find "$DEV_PATH/$NAME" -name 'index.php')
         [[ -n $indexpath && $FORCE -ne 1 ]] && docroot="$(dirname $indexpath)"
+		# write enable temp & log directories
+		tempdir="$DEV_PATH/$NAME/temp"
+		logdir="$DEV_PATH/$NAME/log"
+		[[ -d $tempdir && $(stat -c "%a" $tempdir) -ne 777 ]] && chmod a+w "$tempdir"
+		[[ -d $logdir && $(stat -c "%a" $logdir) -ne 777 ]] && chmod a+w "$logdir"
     else
         mkdir "$DEV_PATH/$NAME" && addmsg "Site '#G$NAME#g' project path added."
     fi
