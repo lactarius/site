@@ -2,6 +2,7 @@
 declare DEV_PATH="$HOME/virt"	# Projects directory
 declare CACHE_PATH="temp"		# Application cache path
 declare DOC_ROOT="www"			# Default Document Root
+declare INDEX="index.php"		# Default index file
 declare SITE_USER="$USER"		# FPM pool defaults
 declare SITE_GROUP="$USER"		#
 declare LISTEN_OWNER='www-data'	#
@@ -508,7 +509,8 @@ _site_add() {
     declare docroot="$(readlink -m "$DEV_PATH/$NAME/$ROOT")"
     declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d"
     declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
-    declare indexpath sitedef pooldef tempdir logdir
+    declare indexpath sitedef pooldef tempdir logdir item
+	declare -a indexarray
 
     [[ -z $NAME ]] && addmsg "Site name not given." $MST_ERROR
     [[ -f $sitepath ]] && addmsg "Site '#R$URLNAME#r' HTTP definition already exists." $MST_ERROR
@@ -518,13 +520,16 @@ _site_add() {
 
     # project development path
     if [[ -d $DEV_PATH/$NAME ]]; then
-        indexpath=$(find "$DEV_PATH/$NAME" -name 'index.php')
+        indexarray=($(find "$DEV_PATH/$NAME" -name 'index.php'))
+		for item in "${indexarray[@]}"; do
+			[[ $item == *"$DOC_ROOT/$INDEX" ]] && indexpath="$item"
+		done
         [[ -n $indexpath && $FORCE -ne 1 ]] && docroot="$(dirname $indexpath)"
 		# write enable temp & log directories
 		tempdir="$DEV_PATH/$NAME/temp"
 		logdir="$DEV_PATH/$NAME/log"
-		[[ -d $tempdir && $(stat -c "%a" $tempdir) -ne 777 ]] && chmod a+w "$tempdir"
-		[[ -d $logdir && $(stat -c "%a" $logdir) -ne 777 ]] && chmod a+w "$logdir"
+		[[ -d $tempdir ]] && chmod a+w "$tempdir"
+		[[ -d $logdir ]] && chmod a+w "$logdir"
     else
         mkdir "$DEV_PATH/$NAME" && addmsg "Site '#G$NAME#g' project path added."
     fi
@@ -532,7 +537,7 @@ _site_add() {
     # document root
     [[ ! -d $docroot ]] && mkdir -p "$docroot" &&
 		addmsg "Site '#G$NAME#g' document root path '#G$docroot#g' created."
-    # index.php file
+    # index file
     [[ -z $indexpath || $FORCE -eq 1 ]] &&
         write "$(index_tpl)" "$docroot/index.php" &&
         addmsg "Site '#G$NAME#g' testing #Gindex.php #gfile added."
