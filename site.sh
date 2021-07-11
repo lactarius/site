@@ -528,8 +528,8 @@ _site_add() {
 		# write enable temp & log directories
 		tempdir="$DEV_PATH/$NAME/temp"
 		logdir="$DEV_PATH/$NAME/log"
-		[[ -d $tempdir ]] && chmod a+w "$tempdir"
-		[[ -d $logdir ]] && chmod a+w "$logdir"
+		[[ -d $tempdir ]] && chmod 777 "$tempdir"
+		[[ -d $logdir ]] && chmod 777 "$logdir"
     else
         mkdir "$DEV_PATH/$NAME" && addmsg "Site '#G$NAME#g' project path added."
     fi
