@@ -10,13 +10,24 @@ Project manager for LEMP server\
 - Database server
 ```
 # apt install mariadb-server
-# mysql_secure_installation ... (initialize server)
+# mysql_secure_installation
+# mysql
+```
+- SQL init statement
+```
+GRANT ALL ON *.* TO 'root'@'localhost' IDENTIFIED BY 'root' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+EXIT;
 ```
 - PHP multiversion
+
+/etc/apt/sources.list.d/php.list:
+
+deb https://packages.sury.org/php/ bullseye main
 ```
 # wget -O /etc/apt/trusted.gpg.d/php.gpg https://packages.sury.org/php/apt.gpg
 # apt update
-# apt install php{8.0,7.4,7.0}-{fpm,mbstring,gd,intl,xml,curl,mysql}
+# apt install php{8.1,8.0,7.4}-{fpm,mbstring,gd,intl,xml,curl,mysql}
 ```
 - Prepare SITE helper
 ```
