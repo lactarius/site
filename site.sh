@@ -420,11 +420,10 @@ svcout() {
 # $1..$n options
 popts() {
 	declare item
-	declare -i i=1
+	declare -i i=0
 	declare -a arr=("$@")
 
 	pdash 30
-	pline "0) #rnone"
 	for item in "${arr[@]}"; do
 		pline "$i) #g$item"
 		((i++))
@@ -554,9 +553,9 @@ _site_add() {
 		cnt=${#indexarray[@]}
 		if ((cnt > 1)); then
 			popts "${indexarray[@]}"
-			read -e -p "Choose index file path: " -i 0 id
-			((id > 0)) && indexpath="${indexarray[$((id - 1))]}"
-		elif ((cnt > 0)); then
+			read -e -p "Choose index file path [none]: " id
+			((id > 0)) && indexpath="${indexarray[$((id))]}"
+		elif ((cnt == 1)); then
 			indexpath="${indexarray[0]}"
 		fi
     [[ -n $indexpath && $FORCE -ne 1 ]] && docroot="$(dirname $indexpath)"
