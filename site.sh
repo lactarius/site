@@ -450,7 +450,9 @@ site_help() {
 	#Ylist\t\t\t\t#wList sites
 	#Ysetup\t\t\t\t#wSetup environment
 	#Yunset\t\t\t\t#wRemove environment
-	#Yunset --force\t\t\t#wRemove #Wall existing projects #wand environment\n
+	#Yunset --force\t\t\t#wRemove #Wall existing projects #wand environment
+	#Yhelp\t\t\t\t#wThis page
+	#Yinfo\t\t\t\t#wSite on GitHub\n
 	#gShorter notation\n
 	#Yadd #y<name> #Y--root src/www #w= #Ya #y<name> #Y-r #ysrc/www #wetc...
 	#w----------------------------------------------------------------------------------------------")"
@@ -751,7 +753,8 @@ site() {
     _envi_unset
     ;;
   l | list) _site_list ;;
-  h | --help) site_help ;;
+  h | help) site_help ;;
+  i | info) banner_tpl ;;
   esac
   [[ $title ]] && msgout "$title"
 }
