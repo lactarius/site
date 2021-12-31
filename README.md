@@ -132,8 +132,8 @@ $ svc v 7.0
 _Create project_
 ```
 $ cd ~/virt
-$ cps c
-: nette/web-project nette-blog
-$ site add nette-blog
-$ svc r ng 8
+$ cps cp nette/web-project sandbox	# composer create project
+$ site add sandbox									# setup web application
+$ site add sandbox --php 7.4				# setup extension for PHP7.4
+$ svc r g 1 4												# restart services nginx, php8.1, php7.4
 ```
