@@ -3,5 +3,5 @@ declare DEFAULTLOCATION="$HOME/.local/lib"
 declare location="${1:-$DEFAULTLOCATION}"
 
 mkdir -p "$location" && cp ./site.sh "$location" \
-	&& echo -e "\n. $location/site.sh" >> "$HOME/.profile" \
+	&& echo -e "\n# SITE helper load\n. $location/site.sh" >> "$HOME/.profile" \
 	&& echo "Installed." || echo "Error - try it manually."
