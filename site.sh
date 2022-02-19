@@ -419,16 +419,16 @@ svcout() {
 # print options
 # $1..$n options
 popts() {
-	declare item
-	declare -i i=0
-	declare -a arr=("$@")
+  declare item
+  declare -i i=0
+  declare -a arr=("$@")
 
-	pdash 30
-	for item in "${arr[@]}"; do
-		pline "$i) #g$item"
-		((i++))
-	done
-	pdash
+  pdash 30
+  for item in "${arr[@]}"; do
+    pline "$i) #g$item"
+    ((i++))
+  done
+  pdash
 }
 
 ######### Site ########################
@@ -539,8 +539,8 @@ _site_add() {
   declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d"
   declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
   declare indexpath sitedef pooldef tempdir logdir item
-	declare -i id cnt
-	declare -a indexarray
+  declare -i id cnt loop=1
+  declare -a indexarray
 
   [[ -z $NAME ]] && addmsg "Site name not given." $MST_ERROR
   [[ -f $sitepath ]] && addmsg "Site '#R$URLNAME#r' HTTP definition already exists." $MST_ERROR
@@ -550,16 +550,20 @@ _site_add() {
 
   # existing project development path
   if [[ -d $DEV_PATH/$NAME ]]; then
-		# search for existing index file(s)
+    # search for existing index file(s)
     indexarray=($(find "$DEV_PATH/$NAME" -name "$INDEX"))
-		cnt=${#indexarray[@]}
-		if ((cnt > 1)); then
-			popts "${indexarray[@]}"
-			read -e -p "Choose index file path [none]: " id
-			((id > 0)) && indexpath="${indexarray[$((id))]}"
-		elif ((cnt == 1)); then
-			indexpath="${indexarray[0]}"
-		fi
+    cnt=${#indexarray[@]}
+    if ((cnt > 1)); then
+      popts "${indexarray[@]}"
+      while ((loop == 1)); do
+				read -e -p "Choose index file path [none]: " id
+        [[ -z $id || $id -ge 0 && $id -lt $cnt ]] && loop=0 ||
+          pline "#R$id #r?? One more time and better, please."
+      done
+      ((id >= 0)) && indexpath="${indexarray[$((id))]}"
+    elif ((cnt == 1)); then
+      indexpath="${indexarray[0]}"
+    fi
     [[ -n $indexpath && $FORCE -ne 1 ]] && docroot="$(dirname $indexpath)"
     # write enable temp & log directories
     tempdir="$DEV_PATH/$NAME/temp"
