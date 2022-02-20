@@ -556,7 +556,7 @@ _site_add() {
     if ((cnt > 1)); then
       popts "${indexarray[@]}"
       while ((loop == 1)); do
-				read -e -p "Choose index file path [none]: " id
+        read -e -p "Choose index file path [none]: " id
         [[ -z $id || $id -ge 0 && $id -lt $cnt ]] && loop=0 ||
           pline "#R$id #r?? One more time and better, please."
       done
@@ -568,8 +568,10 @@ _site_add() {
     # write enable temp & log directories
     tempdir="$DEV_PATH/$NAME/temp"
     logdir="$DEV_PATH/$NAME/log"
-    [[ -d $tempdir ]] && chmod 777 "$tempdir"
-    [[ -d $logdir ]] && chmod 777 "$logdir"
+    [[ -d $tempdir ]] && chmod 777 "$tempdir" &&
+      addmsg "Site '#G$NAME#g' TEMP directory write enabled."
+    [[ -d $logdir ]] && chmod 777 "$logdir" &&
+      addmsg "Site '#G$NAME#g' LOG directory write enabled."
   else
     mkdir "$DEV_PATH/$NAME" && addmsg "Site '#G$NAME#g' project path added."
   fi
