@@ -538,8 +538,8 @@ _site_add() {
   declare docroot="$(readlink -m "$DEV_PATH/$NAME/$ROOT")"
   declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d"
   declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
-  declare indexpath sitedef pooldef tempdir logdir item
-  declare -i id cnt loop=1
+  declare indexpath sitedef pooldef tempdir logdir item id
+  declare -i cnt loop=1
   declare -a indexarray
 
   [[ -z $NAME ]] && addmsg "Site name not given." $MST_ERROR
@@ -560,7 +560,7 @@ _site_add() {
         [[ -z $id || $id -ge 0 && $id -lt $cnt ]] && loop=0 ||
           pline "#R$id #r?? One more time and better, please."
       done
-      ((id >= 0)) && indexpath="${indexarray[$((id))]}"
+      [[ -n $id ]] && indexpath="${indexarray[$((id))]}"
     elif ((cnt == 1)); then
       indexpath="${indexarray[0]}"
     fi
