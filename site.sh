@@ -18,7 +18,8 @@ declare HTTP_AVAILABLE="$HTTP_PATH/sites-available" # Available sites
 declare HTTP_ENABLED="$HTTP_PATH/sites-enabled"     # Enabled sites
 declare HTTP_EXT_PATH="$HTTP_PATH/common"           # Extemded settings directory
 declare PHP_PATH="$CONF_PATH/php"                   # PHP settings directory
-declare PHP_LIST=($(ls $PHP_PATH))                  # Installed PHP versions list
+declare PHP_LIST									                  # Installed PHP versions list
+[[ -d "$PHP_PATH" ]] && PHP_LIST=($(ls $PHP_PATH))
 declare DNS_PATH="$CONF_PATH/hosts"                 # Local DNS file
 ######### Opts ########################
 declare CMD NAME URLNAME PHPV ROOT
@@ -673,10 +674,11 @@ _envi_setup() {
     write "$(common_tpl)" "$HTTP_EXT_PATH/common.conf" &&
     write "$(nette_tpl)" "$HTTP_EXT_PATH/nette.conf" &&
     write "$(php_tpl)" "$HTTP_EXT_PATH/php.conf" &&
-    addmsg "#GNginX extended settings #gadded."
-  mkdir "$DEV_PATH" && addmsg "The #Gdevelopment path #gcreated."
-  addmsg "#GSITE #ginstalled."
-  banner_tpl
+    addmsg "#GNginX extended settings #gadded." &&
+		mkdir "$DEV_PATH" && addmsg "The #Gdevelopment path #gcreated." &&
+	  addmsg "#GSITE #ginstalled." &&
+	  banner_tpl ||
+		addmsg "#RNginX #rserver is not installed." $MST_ERROR && return 1
 }
 
 # cancel environment
