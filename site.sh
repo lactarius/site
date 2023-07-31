@@ -25,7 +25,543 @@ declare DNS_PATH="$CONF_PATH/hosts" # Local DNS file
 declare CMD NAME URLNAME PHPV ROOT
 declare -i FORCE
 
+######### Utilities ###################
+
+# is string an IPv4 address?
+# $1 - tested string
+is_ip4() {
+  [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# is string an IPv6 address?
+# $1 - tested string
+is_ip6() {
+  [[ $1 =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ ]]
+}
+
+# sort array alphabetically
+# $1 - array name
+sort_array() {
+  local -n array=$1
+  IFS=$'\n' array=($(sort <<<"${array[*]}"))
+  unset IFS
+}
+
+# search value in array
+# $1 - needle
+# $2 - array haystack name
+# $3 - options (isf)
+# options:	def. return - value, i - index
+#			def. compare - as string, r - regular, n - numeric
+#			def. quantity - none, f - first match, m - multiple matches, a - add to existing results
+# $4 - result name
+searcharray() {
+  declare needle=$1 opt=$3 item chk
+  declare -n haystack=$2 result=${4:-chk}
+  declare -i i found=1
+
+  [[ $opt =~ m ]] && result=()
+  for ((i = 0; i < ${#haystack[@]}; i++)); do
+    item="${haystack[$i]}"
+    if [[ $opt =~ n && $item -eq $needle ]] || [[ $opt =~ r && $item =~ $needle ]] ||
+      [[ $item == $needle ]]; then
+      found=0
+      [[ $opt =~ i ]] && item=$i
+      [[ $opt =~ f ]] && result=$item
+      [[ $opt =~ a|m ]] && result+=($item) || break
+    fi
+  done
+  return $found
+}
+
+# Fill array with dirlist
+# $1 - array name
+# $2 - path (.)
+# $3 - type f - files d - dirs (files)
+# $4 - file extension ($CFG_EXT)
+getdir() {
+  declare -n array=$1
+  declare path="${2:-.}" type=${3:-f} ext=${4:-$CFG_EXT} wc=*
+
+  [[ $type == d ]] && wc=*/
+  # load listing
+  array=("$path/"$wc)
+  # files => trailing .ext, dirs => trailing /
+  [[ $type == f ]] && array=("${array[@]%$ext}") || array=("${array[@]%/}")
+  # remove path
+  array=("${array[@]##*/}")
+  # empty dir
+  array=("${array[@]%\*}")
+}
+
+# write text to file
+# $1 - content
+# $2 - file
+write() {
+  declare text="$1" file="$2"
+  if [[ -w $(dirname $file) ]]; then
+    printf '%s\n' "$text" >"$file"
+  else
+    printf '%s\n' "$text" | sudo tee "$file" >/dev/null 2>&1
+  fi
+}
+
+# PHP current version number
+# PHP 8.0.3 (cli) => 8.0
+phpver() {
+  php -v | sed -e '/^PHP/!d' -e 's/.* \([0-9]\+\.[0-9]\+\).*$/\1/'
+}
+
+# PHP version without period
+# $1 - PHP version
+# 7.4 => 74
+phpversim() {
+  echo "${1//./}"
+}
+
+# PHP default version switcher
+# $1 - new default version
+phpsw() {
+  sudo update-alternatives --set php /usr/bin/php$1
+  php -v
+}
+
+######### Site ########################
+
+# check SITE
+checksite() {
+  if [[ ! -d $DEV_PATH || ! -d $HTTP_EXT_PATH ]]; then
+    [[ -z $1 ]] && addmsg "The #RSITE #ris not installed." $MST_ERROR
+    return 1
+  fi
+}
+
+# DNS records management
+# $1 - operation (0:add, 1:delete) (add)
+# $2 - subject site
+# $3 - base site
+host() {
+  declare -i op=${1:-0} found basefound
+  declare subject=${2:-$URLNAME} base=${3:-$NAME} line newline ip site msg
+  declare -a list newlist words inline ip6 cache
+
+  # load hosts
+  mapfile -t list <"$DNS_PATH"
+  for line in "${list[@]}"; do
+    read -ra words <<<"$line"
+    ip="${words[0]}"
+    # IP address => parse line
+    if is_ip4 "$ip" || is_ip6 "$ip"; then
+      inline=()
+      for site in "${words[@]:1}"; do
+        [[ $site == $subject ]] && found=1 || inline+=($site)
+      done
+      if ((${#inline[@]})); then
+        printf -v newline '%s\t%s' "$ip" "${inline[*]}"
+        cache+=("$newline")
+        is_ip6 $ip && ip6+=("${cache[@]}") || newlist+=("${cache[@]}")
+        cache=()
+      fi
+
+    elif [[ $ip == '#'* ]]; then
+      cache+=("$line")
+    fi
+  done
+
+  # add new host
+  if ((!op)); then
+    printf -v newline '%s\t%s' $LOCALHOST $subject
+    is_ip6 $LOCALHOST && ip6+=("$newline") || newlist+=("$newline")
+  fi
+  ((${#ip6[@]})) && newlist+=('' "${ip6[@]}")
+  ((${#cache[@]})) && newlist+=("${cache[@]}")
+  # operation
+  if ((!op && !found || op && found)); then
+    printf -v newline '%s\n' "${newlist[@]}"
+    msg="Host '#G$subject#g' "
+    ((!op)) && msg+='added.' || msg+='removed.'
+    write "${newline%$'\n'}" "$DNS_PATH" && addmsg "$msg"
+  fi
+  return 0
+}
+
+# enable site
+_site_ena() {
+  checksite || return 1
+  declare name="$URLNAME$CFG_EXT"
+  [[ -f $HTTP_AVAILABLE/$name && ! -L $HTTP_ENABLED/$name ]] &&
+    sudo ln -s "$HTTP_AVAILABLE/$name" "$HTTP_ENABLED" &&
+    addmsg "#gSite '#G$URLNAME#g' enabled."
+}
+
+# disable site
+_site_dis() {
+  checksite || return 1
+  declare name="$URLNAME$CFG_EXT"
+  [[ -L $HTTP_ENABLED/$name ]] && sudo rm "$HTTP_ENABLED/$name" &&
+    addmsg "#gSite '#G$URLNAME#g' disabled."
+}
+
+# add site
+_site_add() {
+  checksite || return 1
+  declare docroot="$(readlink -m "$DEV_PATH/$NAME/$ROOT")"
+  declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d"
+  declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
+  declare indexpath sitedef pooldef tempdir logdir item id
+  declare -i cnt loop=1
+  declare -a indexarray
+
+  [[ -z $NAME ]] && addmsg "Site name not given." $MST_ERROR
+  [[ -f $sitepath ]] && addmsg "Site '#R$URLNAME#r' HTTP record already exists." $MST_ERROR
+  [[ ! -d $poolpath ]] && addmsg "PHP version '#R$PHPV#r' isn't installed or is awkward." $MST_ERROR
+  [[ -f $poolpath/$NAME$CFG_EXT ]] && addmsg "Pool '#R$NAME#r' FPM record for #RPHP$PHPV #ralready exists." $MST_ERROR
+  ((ECN > 0)) && return 1
+
+  # existing project development path
+  if [[ -d $DEV_PATH/$NAME ]]; then
+    # search for existing index file(s)
+    indexarray=($(find "$DEV_PATH/$NAME" -name "$INDEX"))
+    cnt=${#indexarray[@]}
+    if ((cnt > 1)); then
+      popts "${indexarray[@]}"
+      while ((loop == 1)); do
+        read -e -p "Choose index file path [none]: " id
+        [[ -z $id || $id -ge 0 && $id -lt $cnt ]] && loop=0 ||
+          pline "#R$id #r?? One more time and better, please."
+      done
+      [[ -n $id ]] && indexpath="${indexarray[$((id))]}"
+    elif ((cnt == 1)); then
+      indexpath="${indexarray[0]}"
+    fi
+    [[ -n $indexpath && $FORCE -ne 1 ]] && docroot="$(dirname $indexpath)"
+    # write enable temp & log directories
+    tempdir="$DEV_PATH/$NAME/temp"
+    logdir="$DEV_PATH/$NAME/log"
+    [[ -d $tempdir ]] && chmod 777 "$tempdir" &&
+      addmsg "Site '#G$NAME#g' TEMP directory write enabled."
+    [[ -d $logdir ]] && chmod 777 "$logdir" &&
+      addmsg "Site '#G$NAME#g' LOG directory write enabled."
+  else
+    mkdir "$DEV_PATH/$NAME" && addmsg "Site '#G$NAME#g' project path added."
+  fi
+
+  # document root
+  [[ ! -d $docroot ]] && mkdir -p "$docroot" &&
+    addmsg "Site '#G$NAME#g' document root path '#G$docroot#g' created."
+  # index file
+  [[ -z $indexpath || $FORCE -eq 1 ]] &&
+    write "$(index_tpl)" "$docroot/index.php" &&
+    addmsg "Site '#G$NAME#g' testing #Gindex.php #gfile added."
+  # add site HTTP record
+  sitedef="$(site_tpl "$URLNAME" "$docroot" "$LOG_PATH")"
+  write "$sitedef" "$sitepath" && addmsg "Site '#G$URLNAME#g' HTTP record added."
+  # add site FPM pool
+  pooldef="$(pool_tpl "$URLNAME" "$SITE_USER" "$SITE_GROUP" "$LISTEN_OWNER" "$LISTEN_GROUP")"
+  write "$pooldef" "$poolpath/$NAME$CFG_EXT" &&
+    addmsg "Pool '#G$NAME#g' FPM record for #GPHP$PHPV #gadded."
+  # add DNS record
+  host
+  # enable
+  _site_ena
+}
+
+# remove HTTP & FPM defs & DNS record
+_server_rm() {
+  declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d/$NAME$CFG_EXT"
+  declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
+
+  # disable
+  _site_dis
+  # DNS record remove
+  host 1
+  # fpm record remove
+  [[ -f $poolpath ]] && sudo rm "$poolpath" && addmsg "Pool '#G$NAME#g' FPM record for #GPHP$PHPV #gremoved."
+  # http record remove
+  [[ -f $sitepath ]] && sudo rm "$sitepath" && addmsg "Site '#G$URLNAME#g' HTTP record removed."
+}
+
+# remove site sources
+_site_rm() {
+  checksite || return 1
+  declare devpath="$DEV_PATH/$NAME"
+
+  # trying to remove extended site sources
+  [[ ! -d $devpath ]] && addmsg "Site '#R$NAME#r' is not a base site." $MST_ERROR && return 1
+  # remove server records
+  if ((FORCE)); then
+    for PHPV in "${PHP_LIST[@]}"; do
+      [[ $PHPV == $(phpver) ]] && URLNAME=$NAME || URLNAME="$NAME$(phpversim $PHPV)"
+      _server_rm
+    done
+    # sources remove
+    rm -r "$devpath" && addmsg "Site '#G$NAME#g' development path removed."
+  else
+    _server_rm
+  fi
+}
+
+# remove all projects
+_site_rm_all() {
+  declare -a sites
+  declare -i count
+
+  getdir sites "$DEV_PATH" d
+  count=${#sites[@]}
+  ((!count)) && return 0
+  if ((FORCE)); then
+    for NAME in "${sites[@]}"; do
+      _site_rm
+    done
+  else
+    addmsg "#R$count #rproject(s) remaining !" $MST_ERROR
+    return 1
+  fi
+}
+
+# list sites
+_site_list() {
+  checksite || return 1
+  declare cur="$PWD" site
+  declare -i i
+  clrlst
+  cd "$HTTP_AVAILABLE"
+  LST=($(ls *$CFG_EXT | sed "s/$CFG_EXT$//"))
+  LCN=${#LST[@]}
+  cd "$cur"
+  for site in "${LST[@]}"; do
+    [[ -L $HTTP_ENABLED/$site$CFG_EXT ]] && LSS+=(1) || LSS+=(0)
+  done
+  lstout "Site list"
+}
+
+######### Environment #################
+# prepare environment
+_envi_setup() {
+  declare -i stop=0
+
+  checksite 1 && {
+    addmsg "The #RSITE #ris already installed." $MST_ERROR
+    return 1
+  }
+  sudo nginx -v >/dev/null 2>&1 || {
+    stop=1
+    addmsg "#RNginX #rserver not installed." $MST_ERROR
+  }
+  sudo mysqld --version >/dev/null 2>&1 || {
+    stop=1
+    addmsg "#RMariaDB #rserver not installed." $MST_ERROR
+  }
+  ((${#PHP_LIST[@]})) || {
+    stop=1
+    addmsg "#RPHP-FPM #rserver(s) not installed." $MST_ERROR
+  }
+  ((stop)) && return 1
+
+  sudo mkdir "$HTTP_EXT_PATH" &&
+    write "$(common_tpl)" "$HTTP_EXT_PATH/common.conf" &&
+    write "$(nette_tpl)" "$HTTP_EXT_PATH/nette.conf" &&
+    write "$(php_tpl)" "$HTTP_EXT_PATH/php.conf" &&
+    addmsg "#GNginX extended settings #gadded." || stop=1
+
+  mkdir "$DEV_PATH" && addmsg "The #Gdevelopment path #gcreated." &&
+    addmsg "#GSITE #ginstalled." &&
+    banner_tpl
+}
+
+# cancel environment
+_envi_unset() {
+  checksite || return 1
+  # remove remaining projects if forced
+  if _site_rm_all; then
+    [[ -d $DEV_PATH ]] && rm -r "$DEV_PATH" && addmsg "#gThe #Gdevelopment path #gremoved."
+    [[ -d $HTTP_PATH/common ]] && sudo rm -r "$HTTP_PATH/common" &&
+      addmsg "#GNginX extended settings #gremoved."
+    addmsg "#GSITE #guninstalled."
+    banner_tpl
+  fi
+}
+
+# site management
+# $1 - command
+# $2-X - arguments
+site() {
+  declare title
+  declare -a posarg
+  declare -i nposarg
+
+  FORCE=0
+  NAME=
+  PHPV=$(phpver)
+  ROOT="$DOC_ROOT"
+  while (($# > 0)); do
+    case $1 in
+    -f | --force) FORCE=1 ;;
+    -n | --name)
+      shift
+      NAME=$1
+      ;;
+    -p | --php)
+      shift
+      PHPV=$1
+      ;;
+    -r | --root)
+      shift
+      ROOT=$1
+      ;;
+    *) posarg+=($1) ;;
+    esac
+    shift
+  done
+
+  nposarg=${#posarg[@]}
+  # command word 1. positional
+  ((nposarg)) && CMD=${posarg[0]}
+  # site name can be 2. positional
+  [[ $nposarg -gt 1 && -z $NAME ]] && NAME=${posarg[1]}
+  # not system default php version - extended site
+  [[ $PHPV != $(phpver) ]] && URLNAME="$NAME$(phpversim $PHPV)" || URLNAME=$NAME
+
+  clrmsg
+  case $CMD in
+  a | add)
+    title="Adding site #Y$URLNAME"
+    _site_add
+    ;;
+  r | rm)
+    title="Removing site #Y$URLNAME"
+    _site_rm
+    ;;
+  e | ena)
+    title="Enabling site #Y$URLNAME"
+    _site_ena
+    ;;
+  d | dis)
+    title="Disabling site #Y$URLNAME"
+    _site_dis
+    ;;
+  setup)
+    title="SITE setup"
+    _envi_setup
+    ;;
+  unset)
+    title="SITE clear away"
+    _envi_unset
+    ;;
+  l | list) _site_list ;;
+  h | help) site_help ;;
+  i | info) banner_tpl ;;
+  esac
+  [[ $title ]] && msgout "$title"
+}
+
+######### Services ####################
+
+# Load status
+_svc_load() {
+  declare selection line name
+  declare -a table
+
+  selection=$(sudo systemctl list-units --type service --all | grep -E 'mariadb|nginx|fpm')
+  mapfile -t table <<<"$selection"
+  SVC=()
+  SVS=()
+  for line in "${table[@]}"; do
+    name="${line%%.service*}"
+    SVC+=("${name:2}")
+    [[ $line =~ 'running' ]] && SVS+=(1) || SVS+=(0)
+  done
+}
+
+# service controller
+# $1 - command
+# $2-X - service(s)
+svc() {
+  declare cmd=${1:-l} service name
+  declare -a sel=("${@:2}") svcact
+
+  case $cmd in
+  v)
+    phpsw "${sel[0]}"
+    return 0
+    ;;
+  p) cmd=stop ;;
+  r) cmd=restart ;;
+  s) cmd=start ;;
+  h | --help)
+    svc_help
+    return 0
+    ;;
+  *) cmd=list ;;
+  esac
+  _svc_load
+  if [[ $cmd != list ]]; then
+    if ((${#sel[@]})); then
+      svcact=()
+      for name in "${sel[@]}"; do
+        searcharray $name SVC ra svcact
+      done
+    else
+      svcact=("${SVC[@]}")
+    fi
+    SVO=()
+    for service in "${svcact[@]}"; do
+      SVO+=("$cmd $service")
+      sudo systemctl $cmd $service
+    done
+    _svc_load
+  fi
+  svcout
+}
+
+######### Composer ####################
+
+# composer shortcuts
+# $1 - command
+# $2 - package
+cps() {
+  declare cmdline='composer ' cmd=${1:-h}
+  declare -a pkg="${@:2}"
+
+  case $cmd in
+  u) cmdline+="update" ;;
+  ud) cmdline+="update --with-dependencies" ;;
+  ul) cmdline+="update --lock" ;;
+  su) cmdline="sudo composer self-update" ;;
+  i) cmdline+="install" ;;
+  id) cmdline+="install --dry-run" ;;
+  a) cmdline+="require" ;;
+  ad) cmdline+="require --dev" ;;
+  r) cmdline+="remove" ;;
+  cp) cmdline+="create-project" ;;
+  *)
+    cps_help
+    return 0
+    ;;
+  esac
+
+  read -e -p "$(echo -e -n "$(parsecolor "#yComposer")"): " -i "$cmdline ${pkg[@]}" cmdline
+
+  eval "$cmdline"
+}
+
+# Cache clear
+clc() {
+  declare cachedir="$CACHE_PATH/cache"
+
+  clrmsg
+  if [[ -d $CACHE_PATH ]]; then
+
+    [[ -d $cachedir && $(ls -A $cachedir) ]] && rm -rf $CACHE_PATH && addmsg "Cache #Gcleared#g." ||
+      addmsg "Cache #Gempty#g."
+  else
+    addmsg "Are You in the project directory ?" $MST_ERROR
+  fi
+  msgout "Cache"
+}
+
 ######### Templates ###################
+
 # NginX
 # common
 common_tpl() {
@@ -141,6 +677,76 @@ chdir = /
 EOT
 }
 
+######### Texts #######################
+
+######### Site ########################
+
+site_help() {
+  echo -e "$(parsecolor "	#gSITE
+	#w----------------------------------------------------------------------------------------------
+	#ysite #Y[cmd] #y[name] [arg]\n
+	#gCreate site\n
+	#Yadd #y<name>\t\t\t#wCreate site #Wname #wwith default docroot #W$DOC_ROOT #won default #WPHP$(phpver)
+	#Yadd #y<name> #Y--root src/www\t#wCreate site #Wname #wwith docroot #Wsrc/www #won default #WPHP$(phpver)
+	#Yadd #y<name> #Y--php 7.3\t\t#wCreate site #Wname #wextension #Wname73 #won #WPHP7.3\n
+	#gRemove site\n
+	#Yrm #y<name>\t\t\t#wRemove site #Wname
+	#Yrm #y<name> #Y--php 7.3\t\t#wRemove site #Wname #wextension #Wname73
+	#Yrm #y<name> #Y--force\t\t#wRemove site #Wname #wwith sources\n
+	#gOther\n
+	#Ydis #y<name>\t\t\t#wDisable site #Wname
+	#Yena #y<name>\t\t\t#wEnable site #Wname
+	#Ylist\t\t\t\t#wList sites
+	#Ysetup\t\t\t\t#wSetup environment
+	#Yunset\t\t\t\t#wRemove environment
+	#Yunset --force\t\t\t#wRemove #Wall existing projects #wand environment
+	#Yhelp\t\t\t\t#wThis page
+	#Yinfo\t\t\t\t#wSite on GitHub\n
+	#gShorter notation\n
+	#Yadd #y<name> #Y--root src/www #w= #Ya #y<name> #Y-r #ysrc/www #wetc...
+	#w----------------------------------------------------------------------------------------------")"
+}
+
+######### Environment #################
+
+######### Services ####################
+
+svc_help() {
+  echo -e "$(parsecolor "	#gSERVICES
+	#w----------------------------------------------------------------------------------------------
+	#ysvc #Y[cmd] #y[srv]..[srv]\n
+	#Y-\t\t\t#wList services
+	#Yp\t#ystop\t\t#wStop all services / certain service(s)
+	#Yr\t#yrestart\t\t#wRestart all services / certain service(s)
+	#Ys\t#ystart\t\t#wStart all services / certain service(s)
+	#Yv\t#yswitch\t\t#wSwitch default PHP to version x.y
+	#w----------------------------------------------------------------------------------------------")"
+}
+
+######### Composer ####################
+
+cps_help() {
+  echo -e "$(parsecolor "	#gCOMPOSER SHORTCUTS
+	#w----------------------------------------------------------------------------------------------
+	#ycps #Y<cmd> #y[vendor/package]\n
+	#gUpdate\n
+	#Yu\t#yupdate [v/p] | [v/*]\t\t#wUpdate all packages / Update package / Update vendor
+	#Yud\t#yupdate --with-dependencies\t#wUpdate all packages with dependencies
+	#Yul\t#yupdate --lock\t\t\t#wUpdate #Wcomposer.lock
+	#Ysu\t#yself-update\t\t\t#wUpdate composer\n
+	#gAdd\n
+	#Ya\t#yrequire <v/p>\t\t\t#wAdd package
+	#Yad\t#yrequire <v/p> --dev\t\t#wAdd package to #Wrequire-dev #wsection\n
+	#gRemove\n
+	#Yr\t#yremove <v/p>\t\t\t#wRemove package\n
+	#gInstall dependencies\n
+	#Yi\t#yinstall\t\t\t\t#wInstall all dependencies
+	#Yid\t#yinstall --dry-run\t\t#wSimulate installing dependencies\n
+	#gSpecial\n
+	#Ycp\t#ycreate-project <v/p>\t\t#wCreate project
+	#w----------------------------------------------------------------------------------------------")"
+}
+
 # SITE banner
 banner_tpl() {
   cat <<EOT
@@ -156,106 +762,6 @@ banner_tpl() {
 https://github.com/lactarius/site
 
 EOT
-}
-
-######### Utilities ###################
-# is string an IPv4 address?
-# $1 - tested string
-is_ip4() {
-  [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
-}
-
-# is string an IPv6 address?
-# $1 - tested string
-is_ip6() {
-  [[ $1 =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ ]]
-}
-
-# sort array alphabetically
-# $1 - array name
-sort_array() {
-  local -n array=$1
-  IFS=$'\n' array=($(sort <<<"${array[*]}"))
-  unset IFS
-}
-
-# search value in array
-# $1 - needle
-# $2 - array haystack name
-# $3 - options (isf)
-# options:	def. return - value, i - index
-#			def. compare - as string, r - regular, n - numeric
-#			def. quantity - none, f - first match, m - multiple matches, a - add to existing results
-# $4 - result name
-searcharray() {
-  declare needle=$1 opt=$3 item chk
-  declare -n haystack=$2 result=${4:-chk}
-  declare -i i found=1
-
-  [[ $opt =~ m ]] && result=()
-  for ((i = 0; i < ${#haystack[@]}; i++)); do
-    item="${haystack[$i]}"
-    if [[ $opt =~ n && $item -eq $needle ]] || [[ $opt =~ r && $item =~ $needle ]] ||
-      [[ $item == $needle ]]; then
-      found=0
-      [[ $opt =~ i ]] && item=$i
-      [[ $opt =~ f ]] && result=$item
-      [[ $opt =~ a|m ]] && result+=($item) || break
-    fi
-  done
-  return $found
-}
-
-# Fill array with dirlist
-# $1 - array name
-# $2 - path (.)
-# $3 - type f - files d - dirs (files)
-# $4 - file extension ($CFG_EXT)
-getdir() {
-  declare -n array=$1
-  declare path="${2:-.}" type=${3:-f} ext=${4:-$CFG_EXT} wc=*
-
-  [[ $type == d ]] && wc=*/
-  # load listing
-  array=("$path/"$wc)
-  # files => trailing .ext, dirs => trailing /
-  [[ $type == f ]] && array=("${array[@]%$ext}") || array=("${array[@]%/}")
-  # remove path
-  array=("${array[@]##*/}")
-  # empty dir
-  array=("${array[@]%\*}")
-}
-
-# write text to file
-# $1 - content
-# $2 - file
-write() {
-  declare text="$1" file="$2"
-  if [[ -w $(dirname $file) ]]; then
-    printf '%s\n' "$text" >"$file"
-  else
-    printf '%s\n' "$text" | sudo tee "$file" >/dev/null 2>&1
-  fi
-}
-
-# PHP current version number
-# PHP 8.0.3 (cli) => 8.0
-phpver() {
-  php -v | sed -e '/^PHP/!d' -e 's/.* \([0-9]\+\.[0-9]\+\).*$/\1/'
-}
-
-# PHP version without period
-# $1 - PHP version
-# 7.4 => 74
-phpversim() {
-  echo "${1//./}"
-}
-
-# PHP default version switcher
-# $1 - new default version
-phpsw() {
-  sudo update-alternatives --set php /usr/bin/php$1
-  php -v
 }
 
 ######### User interface ##############
@@ -430,495 +936,4 @@ popts() {
     ((i++))
   done
   pdash
-}
-
-######### Site ########################
-site_help() {
-  echo -e "$(parsecolor "	#gSITE
-	#w----------------------------------------------------------------------------------------------
-	#ysite #Y[cmd] #y[name] [arg]\n
-	#gCreate site\n
-	#Yadd #y<name>\t\t\t#wCreate site #Wname #wwith default docroot #W$DOC_ROOT #won default #WPHP$(phpver)
-	#Yadd #y<name> #Y--root src/www\t#wCreate site #Wname #wwith docroot #Wsrc/www #won default #WPHP$(phpver)
-	#Yadd #y<name> #Y--php 7.3\t\t#wCreate site #Wname #wextension #Wname73 #won #WPHP7.3\n
-	#gRemove site\n
-	#Yrm #y<name>\t\t\t#wRemove site #Wname
-	#Yrm #y<name> #Y--php 7.3\t\t#wRemove site #Wname #wextension #Wname73
-	#Yrm #y<name> #Y--force\t\t#wRemove site #Wname #wwith sources\n
-	#gOther\n
-	#Ydis #y<name>\t\t\t#wDisable site #Wname
-	#Yena #y<name>\t\t\t#wEnable site #Wname
-	#Ylist\t\t\t\t#wList sites
-	#Ysetup\t\t\t\t#wSetup environment
-	#Yunset\t\t\t\t#wRemove environment
-	#Yunset --force\t\t\t#wRemove #Wall existing projects #wand environment
-	#Yhelp\t\t\t\t#wThis page
-	#Yinfo\t\t\t\t#wSite on GitHub\n
-	#gShorter notation\n
-	#Yadd #y<name> #Y--root src/www #w= #Ya #y<name> #Y-r #ysrc/www #wetc...
-	#w----------------------------------------------------------------------------------------------")"
-}
-
-# check SITE
-checksite() {
-  if [[ ! -d $DEV_PATH || ! -d $HTTP_EXT_PATH ]]; then
-    [[ -z $1 ]] && addmsg "The #RSITE #ris not installed." $MST_ERROR
-    return 1
-  fi
-}
-
-# DNS records management
-# $1 - operation (0:add, 1:delete) (add)
-# $2 - subject site
-# $3 - base site
-host() {
-  declare -i op=${1:-0} found basefound
-  declare subject=${2:-$URLNAME} base=${3:-$NAME} line newline ip site msg
-  declare -a list newlist words inline ip6 cache
-
-  # load hosts
-  mapfile -t list <"$DNS_PATH"
-  for line in "${list[@]}"; do
-    read -ra words <<<"$line"
-    ip="${words[0]}"
-    # IP address => parse line
-    if is_ip4 "$ip" || is_ip6 "$ip"; then
-      inline=()
-      for site in "${words[@]:1}"; do
-        [[ $site == $subject ]] && found=1 || inline+=($site)
-      done
-      if ((${#inline[@]})); then
-        printf -v newline '%s\t%s' "$ip" "${inline[*]}"
-        cache+=("$newline")
-        is_ip6 $ip && ip6+=("${cache[@]}") || newlist+=("${cache[@]}")
-        cache=()
-      fi
-
-    elif [[ $ip == '#'* ]]; then
-      cache+=("$line")
-    fi
-  done
-
-  # add new host
-  if ((!op)); then
-    printf -v newline '%s\t%s' $LOCALHOST $subject
-    is_ip6 $LOCALHOST && ip6+=("$newline") || newlist+=("$newline")
-  fi
-  ((${#ip6[@]})) && newlist+=('' "${ip6[@]}")
-  ((${#cache[@]})) && newlist+=("${cache[@]}")
-  # operation
-  if ((!op && !found || op && found)); then
-    printf -v newline '%s\n' "${newlist[@]}"
-    msg="Host '#G$subject#g' "
-    ((!op)) && msg+='added.' || msg+='removed.'
-    write "${newline%$'\n'}" "$DNS_PATH" && addmsg "$msg"
-  fi
-  return 0
-}
-
-# enable site
-_site_ena() {
-  checksite || return 1
-  declare name="$URLNAME$CFG_EXT"
-  [[ -f $HTTP_AVAILABLE/$name && ! -L $HTTP_ENABLED/$name ]] &&
-    sudo ln -s "$HTTP_AVAILABLE/$name" "$HTTP_ENABLED" &&
-    addmsg "#gSite '#G$URLNAME#g' enabled."
-}
-
-# disable site
-_site_dis() {
-  checksite || return 1
-  declare name="$URLNAME$CFG_EXT"
-  [[ -L $HTTP_ENABLED/$name ]] && sudo rm "$HTTP_ENABLED/$name" &&
-    addmsg "#gSite '#G$URLNAME#g' disabled."
-}
-
-# add site
-_site_add() {
-  checksite || return 1
-  declare docroot="$(readlink -m "$DEV_PATH/$NAME/$ROOT")"
-  declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d"
-  declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
-  declare indexpath sitedef pooldef tempdir logdir item id
-  declare -i cnt loop=1
-  declare -a indexarray
-
-  [[ -z $NAME ]] && addmsg "Site name not given." $MST_ERROR
-  [[ -f $sitepath ]] && addmsg "Site '#R$URLNAME#r' HTTP definition already exists." $MST_ERROR
-  [[ ! -d $poolpath ]] && addmsg "PHP version '#R$PHPV#r' isn't installed or is awkward." $MST_ERROR
-  [[ -f $poolpath/$NAME$CFG_EXT ]] && addmsg "Pool '#R$NAME#r' FPM definition for #RPHP$PHPV #ralready exists." $MST_ERROR
-  ((ECN > 0)) && return 1
-
-  # existing project development path
-  if [[ -d $DEV_PATH/$NAME ]]; then
-    # search for existing index file(s)
-    indexarray=($(find "$DEV_PATH/$NAME" -name "$INDEX"))
-    cnt=${#indexarray[@]}
-    if ((cnt > 1)); then
-      popts "${indexarray[@]}"
-      while ((loop == 1)); do
-        read -e -p "Choose index file path [none]: " id
-        [[ -z $id || $id -ge 0 && $id -lt $cnt ]] && loop=0 ||
-          pline "#R$id #r?? One more time and better, please."
-      done
-      [[ -n $id ]] && indexpath="${indexarray[$((id))]}"
-    elif ((cnt == 1)); then
-      indexpath="${indexarray[0]}"
-    fi
-    [[ -n $indexpath && $FORCE -ne 1 ]] && docroot="$(dirname $indexpath)"
-    # write enable temp & log directories
-    tempdir="$DEV_PATH/$NAME/temp"
-    logdir="$DEV_PATH/$NAME/log"
-    [[ -d $tempdir ]] && chmod 777 "$tempdir" &&
-      addmsg "Site '#G$NAME#g' TEMP directory write enabled."
-    [[ -d $logdir ]] && chmod 777 "$logdir" &&
-      addmsg "Site '#G$NAME#g' LOG directory write enabled."
-  else
-    mkdir "$DEV_PATH/$NAME" && addmsg "Site '#G$NAME#g' project path added."
-  fi
-
-  # document root
-  [[ ! -d $docroot ]] && mkdir -p "$docroot" &&
-    addmsg "Site '#G$NAME#g' document root path '#G$docroot#g' created."
-  # index file
-  [[ -z $indexpath || $FORCE -eq 1 ]] &&
-    write "$(index_tpl)" "$docroot/index.php" &&
-    addmsg "Site '#G$NAME#g' testing #Gindex.php #gfile added."
-  # add site HTTP definition
-  sitedef="$(site_tpl "$URLNAME" "$docroot" "$LOG_PATH")"
-  write "$sitedef" "$sitepath" && addmsg "Site '#G$URLNAME#g' HTTP definition added."
-  # add site FPM pool
-  pooldef="$(pool_tpl "$URLNAME" "$SITE_USER" "$SITE_GROUP" "$LISTEN_OWNER" "$LISTEN_GROUP")"
-  write "$pooldef" "$poolpath/$NAME$CFG_EXT" &&
-    addmsg "Pool '#G$NAME#g' FPM definition for #GPHP$PHPV #gadded."
-  # add DNS record
-  host
-  # enable
-  _site_ena
-}
-
-# remove HTTP & FPM defs & DNS record
-_server_rm() {
-  declare poolpath="$PHP_PATH/$PHPV/fpm/pool.d/$NAME$CFG_EXT"
-  declare sitepath="$HTTP_AVAILABLE/$URLNAME$CFG_EXT"
-
-  # disable
-  _site_dis
-  # DNS record remove
-  host 1
-  # fpm definition remove
-  [[ -f $poolpath ]] && sudo rm "$poolpath" && addmsg "Pool '#G$NAME#g' FPM definition for #GPHP$PHPV #gremoved."
-  # http definition remove
-  [[ -f $sitepath ]] && sudo rm "$sitepath" && addmsg "Site '#G$URLNAME#g' HTTP definition removed."
-}
-
-# remove site sources
-_site_rm() {
-  checksite || return 1
-  declare devpath="$DEV_PATH/$NAME"
-
-  # trying to remove extended site sources
-  [[ ! -d $devpath ]] && addmsg "Site '#R$NAME#r' is not a base site." $MST_ERROR && return 1
-  # remove server definitions
-  if ((FORCE)); then
-    for PHPV in "${PHP_LIST[@]}"; do
-      [[ $PHPV == $(phpver) ]] && URLNAME=$NAME || URLNAME="$NAME$(phpversim $PHPV)"
-      _server_rm
-    done
-    # sources remove
-    rm -r "$devpath" && addmsg "Site '#G$NAME#g' development path removed."
-  else
-    _server_rm
-  fi
-}
-
-# remove all projects
-_site_rm_all() {
-  declare -a sites
-  declare -i count
-
-  getdir sites "$DEV_PATH" d
-  count=${#sites[@]}
-  ((!count)) && return 0
-  if ((FORCE)); then
-    for NAME in "${sites[@]}"; do
-      _site_rm
-    done
-  else
-    addmsg "#R$count #rproject(s) remaining !" $MST_ERROR
-    return 1
-  fi
-}
-
-# list sites
-_site_list() {
-  checksite || return 1
-  declare cur="$PWD" site
-  declare -i i
-  clrlst
-  cd "$HTTP_AVAILABLE"
-  LST=($(ls *$CFG_EXT | sed "s/$CFG_EXT$//"))
-  LCN=${#LST[@]}
-  cd "$cur"
-  for site in "${LST[@]}"; do
-    [[ -L $HTTP_ENABLED/$site$CFG_EXT ]] && LSS+=(1) || LSS+=(0)
-  done
-  lstout "Site list"
-}
-
-######### Environment #################
-# prepare environment
-_envi_setup() {
-  declare -i stop=0
-
-  checksite 1 && {
-    addmsg "The #RSITE #ris already installed." $MST_ERROR
-    return 1
-  }
-  sudo nginx -v >/dev/null 2>&1 || {
-    stop=1
-    addmsg "#RNginX #rserver not installed." $MST_ERROR
-  }
-  sudo mysqld --version >/dev/null 2>&1 || {
-    stop=1
-    addmsg "#RMariaDB #rserver not installed." $MST_ERROR
-  }
-  ((${#PHP_LIST[@]})) || {
-    stop=1
-    addmsg "#RPHP-FPM #rserver(s) not installed." $MST_ERROR
-  }
-  ((stop)) && return 1
-
-  sudo mkdir "$HTTP_EXT_PATH" &&
-    write "$(common_tpl)" "$HTTP_EXT_PATH/common.conf" &&
-    write "$(nette_tpl)" "$HTTP_EXT_PATH/nette.conf" &&
-    write "$(php_tpl)" "$HTTP_EXT_PATH/php.conf" &&
-    addmsg "#GNginX extended settings #gadded." || stop=1
-
-  mkdir "$DEV_PATH" && addmsg "The #Gdevelopment path #gcreated." &&
-    addmsg "#GSITE #ginstalled." &&
-    banner_tpl
-}
-
-# cancel environment
-_envi_unset() {
-  checksite || return 1
-  # remove remaining projects if forced
-  if _site_rm_all; then
-    [[ -d $DEV_PATH ]] && rm -r "$DEV_PATH" && addmsg "#gThe #Gdevelopment path #gremoved."
-    [[ -d $HTTP_PATH/common ]] && sudo rm -r "$HTTP_PATH/common" &&
-      addmsg "#GNginX extended settings #gremoved."
-    addmsg "#GSITE #guninstalled."
-    banner_tpl
-  fi
-}
-
-# site management
-# $1 - command
-# $2-X - arguments
-site() {
-  declare title
-  declare -a posarg
-  declare -i nposarg
-
-  FORCE=0
-  NAME=
-  PHPV=$(phpver)
-  ROOT="$DOC_ROOT"
-  while (($# > 0)); do
-    case $1 in
-    -f | --force) FORCE=1 ;;
-    -n | --name)
-      shift
-      NAME=$1
-      ;;
-    -p | --php)
-      shift
-      PHPV=$1
-      ;;
-    -r | --root)
-      shift
-      ROOT=$1
-      ;;
-    *) posarg+=($1) ;;
-    esac
-    shift
-  done
-
-  nposarg=${#posarg[@]}
-  # command word 1. positional
-  ((nposarg)) && CMD=${posarg[0]}
-  # site name can be 2. positional
-  [[ $nposarg -gt 1 && -z $NAME ]] && NAME=${posarg[1]}
-  # not system default php version - extended site
-  [[ $PHPV != $(phpver) ]] && URLNAME="$NAME$(phpversim $PHPV)" || URLNAME=$NAME
-
-  clrmsg
-  case $CMD in
-  a | add)
-    title="Adding site #Y$URLNAME"
-    _site_add
-    ;;
-  r | rm)
-    title="Removing site #Y$URLNAME"
-    _site_rm
-    ;;
-  e | ena)
-    title="Enabling site #Y$URLNAME"
-    _site_ena
-    ;;
-  d | dis)
-    title="Disabling site #Y$URLNAME"
-    _site_dis
-    ;;
-  setup)
-    title="SITE setup"
-    _envi_setup
-    ;;
-  unset)
-    title="SITE clear away"
-    _envi_unset
-    ;;
-  l | list) _site_list ;;
-  h | help) site_help ;;
-  i | info) banner_tpl ;;
-  esac
-  [[ $title ]] && msgout "$title"
-}
-
-######### Services ####################
-svc_help() {
-  echo -e "$(parsecolor "	#gSERVICES
-	#w----------------------------------------------------------------------------------------------
-	#ysvc #Y[cmd] #y[srv]..[srv]\n
-	#Y-\t\t\t#wList services
-	#Yp\t#ystop\t\t#wStop all services / certain service(s)
-	#Yr\t#yrestart\t\t#wRestart all services / certain service(s)
-	#Ys\t#ystart\t\t#wStart all services / certain service(s)
-	#Yv\t#yswitch\t\t#wSwitch default PHP to version x.y
-	#w----------------------------------------------------------------------------------------------")"
-}
-
-# Load status
-_svc_load() {
-  declare selection line name
-  declare -a table
-
-  selection=$(sudo systemctl list-units --type service --all | grep -E 'mariadb|nginx|fpm')
-  mapfile -t table <<<"$selection"
-  SVC=()
-  SVS=()
-  for line in "${table[@]}"; do
-    name="${line%%.service*}"
-    SVC+=("${name:2}")
-    [[ $line =~ 'running' ]] && SVS+=(1) || SVS+=(0)
-  done
-}
-
-# service controller
-# $1 - command
-# $2-X - service(s)
-svc() {
-  declare cmd=${1:-l} service name
-  declare -a sel=("${@:2}") svcact
-
-  case $cmd in
-  v)
-    phpsw "${sel[0]}"
-    return 0
-    ;;
-  p) cmd=stop ;;
-  r) cmd=restart ;;
-  s) cmd=start ;;
-  h | --help)
-    svc_help
-    return 0
-    ;;
-  *) cmd=list ;;
-  esac
-  _svc_load
-  if [[ $cmd != list ]]; then
-    if ((${#sel[@]})); then
-      svcact=()
-      for name in "${sel[@]}"; do
-        searcharray $name SVC ra svcact
-      done
-    else
-      svcact=("${SVC[@]}")
-    fi
-    SVO=()
-    for service in "${svcact[@]}"; do
-      SVO+=("$cmd $service")
-      sudo systemctl $cmd $service
-    done
-    _svc_load
-  fi
-  svcout
-}
-
-######### Composer ####################
-cps_help() {
-  echo -e "$(parsecolor "	#gCOMPOSER SHORTCUTS
-	#w----------------------------------------------------------------------------------------------
-	#ycps #Y<cmd> #y[vendor/package]\n
-	#gUpdate\n
-	#Yu\t#yupdate [v/p] | [v/*]\t\t#wUpdate all packages / Update package / Update vendor
-	#Yud\t#yupdate --with-dependencies\t#wUpdate all packages with dependencies
-	#Yul\t#yupdate --lock\t\t\t#wUpdate #Wcomposer.lock
-	#Ysu\t#yself-update\t\t\t#wUpdate composer\n
-	#gAdd\n
-	#Ya\t#yrequire <v/p>\t\t\t#wAdd package
-	#Yad\t#yrequire <v/p> --dev\t\t#wAdd package to #Wrequire-dev #wsection\n
-	#gRemove\n
-	#Yr\t#yremove <v/p>\t\t\t#wRemove package\n
-	#gInstall dependencies\n
-	#Yi\t#yinstall\t\t\t\t#wInstall all dependencies
-	#Yid\t#yinstall --dry-run\t\t#wSimulate installing dependencies\n
-	#gSpecial\n
-	#Ycp\t#ycreate-project <v/p>\t\t#wCreate project
-	#w----------------------------------------------------------------------------------------------")"
-}
-
-# composer shortcuts
-# $1 - command
-# $2 - package
-cps() {
-  declare cmdline='composer ' cmd=${1:-h}
-  declare -a pkg="${@:2}"
-
-  case $cmd in
-  u) cmdline+="update $pkg" ;;
-  ud) cmdline+="update --with-dependencies" ;;
-  ul) cmdline+="update --lock" ;;
-  su) cmdline="sudo composer self-update" ;;
-  i) cmdline+="install" ;;
-  id) cmdline+="install --dry-run" ;;
-  a) cmdline+="require" ;;
-  ad) cmdline+="require --dev" ;;
-  r) cmdline+="remove" ;;
-  cp) cmdline+="create-project" ;;
-  *)
-    cps_help
-    return 0
-    ;;
-  esac
-
-  read -e -p "$(echo -e -n "$(parsecolor "#yComposer")"): " -i "$cmdline ${pkg[@]}" cmdline
-
-  eval "$cmdline"
-}
-
-# Cache clear
-clc() {
-  declare cachedir="$CACHE_PATH/cache"
-
-  clrmsg
-  if [[ -d $CACHE_PATH ]]; then
-
-    [[ -d $cachedir && $(ls -A $cachedir) ]] && rm -rf $CACHE_PATH && addmsg "Cache #Gcleared#g." ||
-      addmsg "Cache #Gempty#g."
-  else
-    addmsg "Are You in the project directory ?" $MST_ERROR
-  fi
-  msgout "Cache"
 }
